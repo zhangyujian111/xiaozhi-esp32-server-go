@@ -2,42 +2,27 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
-	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/api"
+	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/app"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/config"
-	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/obs"
-	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/server"
 )
 
 func main() {
+	flag.Parse()
+
 	cfg, err := config.Load("./configs/config.yaml")
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
 	}
-	if err := cfg.Validate(); err != nil {
-		log.Fatalf("config validation failed: %v", err)
-	}
-	logger := obs.InitLogger(cfg.Logging.Level, cfg.Logging.Format)
-	logger.Info().Msg("xiaozhi-esp32-server-go started")
 
-	adminSrv := &http.Server{
-		Addr:         cfg.Server.AdminAddr,
-		Handler:      api.SetupRouter(cfg),
-		ReadTimeout:  parseDuration(cfg.Server.ReadTimeout),
-		WriteTimeout: parseDuration(cfg.Server.WriteTimeout),
-	}
-
-	wsSrv := &http.Server{
-		Addr:         cfg.Server.WebsocketAddr,
-		Handler:      api.SetupWebSocketRouter(),
-		ReadTimeout:  parseDuration(cfg.Server.ReadTimeout),
-		WriteTimeout: parseDuration(cfg.Server.WriteTimeout),
+	appInstance, err := app.NewApp(cfg)
+	if err != nil {
+		log.Fatalf("failed to create app: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -50,15 +35,7 @@ func main() {
 		cancel()
 	}()
 
-	if err := server.RunServers(ctx, adminSrv, wsSrv, &logger); err != nil {
-		logger.Error().Err(err).Msg("server error")
+	if err := appInstance.Run(ctx); err != nil {
+		log.Fatalf("server error: %v", err)
 	}
-}
-
-func parseDuration(s string) (d time.Duration) {
-	d, _ = time.ParseDuration(s)
-	if d == 0 {
-		d = 30 * time.Second
-	}
-	return d
 }
