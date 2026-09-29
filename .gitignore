@@ -1,0 +1,40 @@
+# Binaries
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output
+*.out
+
+# Go workspace
+go.work
+go.work.sum
+
+# Env
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+
+# Local models (downloaded separately)
+/models/*.onnx
+
+# Coverage
+coverage.out
+coverage.xml
+
+# Build artifacts
+/dist/
+/tmp/
