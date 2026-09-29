@@ -38,3 +38,6 @@ coverage.xml
 # Build artifacts
 /dist/
 /tmp/
+
+# Subagent scratch space (not source)
+/.superpowers/

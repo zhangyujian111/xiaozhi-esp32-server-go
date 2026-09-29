@@ -4,6 +4,7 @@ server:
   read_timeout: "30s"
   write_timeout: "30s"
   max_connections: 200
+  internal_token: "${SERVER_ADMIN_TOKEN}"
 aisaas:
   base_url: "http://ykt-aisaas:8190"
   internal_token: "${AISAAS_INTERNAL_TOKEN}"

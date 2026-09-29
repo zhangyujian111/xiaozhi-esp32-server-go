@@ -6,6 +6,10 @@ import (
 )
 
 func TestLoad_FullSchema(t *testing.T) {
+	t.Setenv("AISAAS_INTERNAL_TOKEN", "test-aisaas-token")
+	t.Setenv("DB_DSN", "test-dsn")
+	t.Setenv("SERVER_ADMIN_TOKEN", "test-server-token")
+
 	cfg, err := Load(filepath.Join("..", "..", "configs", "config.yaml"))
 	if err != nil {
 		t.Fatalf("failed to load config: %v", err)
@@ -30,8 +34,8 @@ func TestLoad_FullSchema(t *testing.T) {
 	if cfg.Aisaas.BaseURL != "http://ykt-aisaas:8190" {
 		t.Errorf("expected base_url http://ykt-aisaas:8190, got %s", cfg.Aisaas.BaseURL)
 	}
-	if cfg.Aisaas.InternalToken != "${AISAAS_INTERNAL_TOKEN}" {
-		t.Errorf("expected internal_token ${AISAAS_INTERNAL_TOKEN}, got %s", cfg.Aisaas.InternalToken)
+	if cfg.Aisaas.InternalToken != "test-aisaas-token" {
+		t.Errorf("expected internal_token substituted to test-aisaas-token, got %q", cfg.Aisaas.InternalToken)
 	}
 	if cfg.Aisaas.HTTPTimeout != "30s" {
 		t.Errorf("expected http_timeout 30s, got %s", cfg.Aisaas.HTTPTimeout)
@@ -82,8 +86,8 @@ func TestLoad_FullSchema(t *testing.T) {
 		t.Errorf("expected ttfs_alert_threshold_ms 3000, got %d", cfg.Dialogue.TTFSAlertThresholdMs)
 	}
 
-	if cfg.Database.DSN != "${DB_DSN}" {
-		t.Errorf("expected dsn ${DB_DSN}, got %s", cfg.Database.DSN)
+	if cfg.Database.DSN != "test-dsn" {
+		t.Errorf("expected dsn substituted to test-dsn, got %q", cfg.Database.DSN)
 	}
 	if cfg.Database.MaxOpenConns != 50 {
 		t.Errorf("expected max_open_conns 50, got %d", cfg.Database.MaxOpenConns)

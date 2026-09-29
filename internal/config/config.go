@@ -1,7 +1,10 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/spf13/viper"
 )
@@ -22,6 +25,7 @@ type ServerConfig struct {
 	ReadTimeout   string `mapstructure:"read_timeout"`
 	WriteTimeout  string `mapstructure:"write_timeout"`
 	MaxConns      int    `mapstructure:"max_connections"`
+	InternalToken string `mapstructure:"internal_token"`
 }
 
 type AisaasConfig struct {
@@ -70,10 +74,15 @@ type LoggingConfig struct {
 }
 
 func Load(path string) (*Config, error) {
-	viper.SetConfigFile(path)
-
-	if err := viper.ReadInConfig(); err != nil {
+	raw, err := os.ReadFile(path)
+	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+	expanded := []byte(os.ExpandEnv(string(raw)))
+
+	viper.SetConfigType("yaml")
+	if err := viper.ReadConfig(bytes.NewReader(expanded)); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
 	var cfg Config
@@ -82,4 +91,81 @@ func Load(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+func (c *Config) Validate() error {
+	var errs []string
+
+	if c.Server.WebsocketAddr == "" {
+		errs = append(errs, "server.websocket_addr is required")
+	}
+	if c.Server.AdminAddr == "" {
+		errs = append(errs, "server.admin_addr is required")
+	}
+	if c.Server.WebsocketAddr != "" && c.Server.AdminAddr != "" &&
+		c.Server.WebsocketAddr == c.Server.AdminAddr {
+		errs = append(errs, fmt.Sprintf("server.websocket_addr (%s) and server.admin_addr (%s) must differ", c.Server.WebsocketAddr, c.Server.AdminAddr))
+	}
+	if c.Server.MaxConns <= 0 {
+		errs = append(errs, fmt.Sprintf("server.max_connections must be > 0, got %d", c.Server.MaxConns))
+	}
+	if c.Server.ReadTimeout == "" || c.Server.WriteTimeout == "" {
+		errs = append(errs, "server.read_timeout and server.write_timeout are required")
+	}
+
+	if c.Aisaas.BaseURL == "" {
+		errs = append(errs, "aisaas.base_url is required")
+	}
+	if c.Aisaas.InternalToken == "" {
+		errs = append(errs, "aisaas.internal_token is required")
+	}
+	if c.Aisaas.HTTPTimeout == "" {
+		errs = append(errs, "aisaas.http_timeout is required")
+	}
+
+	if c.VAD.SpeechThreshold < 0 || c.VAD.SpeechThreshold > 1 {
+		errs = append(errs, fmt.Sprintf("vad.speech_threshold must be in [0,1], got %f", c.VAD.SpeechThreshold))
+	}
+	if c.VAD.SilenceThreshold < 0 || c.VAD.SilenceThreshold > 1 {
+		errs = append(errs, fmt.Sprintf("vad.silence_threshold must be in [0,1], got %f", c.VAD.SilenceThreshold))
+	}
+	if c.VAD.FrameSizeSamples <= 0 {
+		errs = append(errs, fmt.Sprintf("vad.frame_size_samples must be > 0, got %d", c.VAD.FrameSizeSamples))
+	}
+
+	if c.Opus.Uplink.SampleRate <= 0 || c.Opus.Downlink.SampleRate <= 0 {
+		errs = append(errs, "opus uplink/downlink sample_rate must be > 0")
+	}
+	if c.Opus.Uplink.Channels <= 0 || c.Opus.Downlink.Channels <= 0 {
+		errs = append(errs, "opus uplink/downlink channels must be > 0")
+	}
+
+	if c.Dialogue.WindowMemorySize <= 0 {
+		errs = append(errs, "dialogue.window_memory_size must be > 0")
+	}
+	if c.Dialogue.PerTurnTimeoutSec <= 0 {
+		errs = append(errs, "dialogue.per_turn_timeout must be > 0")
+	}
+
+	if c.Database.MaxOpenConns <= 0 {
+		errs = append(errs, "database.max_open_conns must be > 0")
+	}
+	if c.Database.MaxIdleConns < 0 || c.Database.MaxIdleConns > c.Database.MaxOpenConns {
+		errs = append(errs, fmt.Sprintf("database.max_idle_conns (%d) must be in [0, max_open_conns (%d)]", c.Database.MaxIdleConns, c.Database.MaxOpenConns))
+	}
+	if c.Database.DSN == "" {
+		errs = append(errs, "database.dsn is required")
+	}
+
+	if c.Logging.Level == "" {
+		errs = append(errs, "logging.level is required")
+	}
+	if c.Logging.Format != "json" && c.Logging.Format != "console" {
+		errs = append(errs, fmt.Sprintf("logging.format must be 'json' or 'console', got %q", c.Logging.Format))
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("config validation failed:\n  - %s", strings.Join(errs, "\n  - "))
+	}
+	return nil
 }
