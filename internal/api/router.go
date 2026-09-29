@@ -6,8 +6,11 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/aisaas"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/config"
+	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/store"
 )
 
 func SetupRouter(cfg *config.Config) *gin.Engine {
@@ -23,6 +26,19 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 	})
 
 	r.GET("/metrics", authMetrics(cfg.Server.InternalToken), gin.WrapH(promhttp.Handler()))
+
+	return r
+}
+
+func SetupAPIRouter(cfg *config.Config, ds store.DeviceStore) *gin.Engine {
+	r := SetupRouter(cfg)
+
+	aisaasClient := aisaas.NewClient(cfg.Aisaas.BaseURL, cfg.Aisaas.InternalToken)
+	latestFW := "1.1.0"
+	publicWSURL := "wss://" + cfg.Server.WebsocketAddr
+
+	otaHandler := NewOTAHandler(ds, aisaasClient, latestFW, publicWSURL)
+	r.POST("/api/device/ota", otaHandler.HandleOTA)
 
 	return r
 }
@@ -50,4 +66,55 @@ func SetupWebSocketRouter() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	})
+}
+
+func internalJWTAuth(secret string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		tokenStr := extractBearer(authHeader)
+		if tokenStr == "" {
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+
+		token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, jwt.ErrSignatureInvalid
+			}
+			return []byte(secret), nil
+		})
+		if err != nil || !token.Valid {
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+		if role, ok := claims["role"].(string); !ok || role != "admin" {
+			c.AbortWithStatus(http.StatusForbidden)
+			return
+		}
+
+		c.Next()
+	}
+}
+
+func SetupInternalRouter(secret string, ds store.DeviceStore) *gin.Engine {
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(gin.Recovery())
+
+	dh := NewDeviceHandler(ds)
+	devGroup := r.Group("/api/internal/v1")
+	devGroup.Use(internalJWTAuth(secret))
+	devGroup.GET("/devices", dh.ListDevices)
+	devGroup.GET("/devices/:deviceID", dh.GetDevice)
+	devGroup.POST("/devices/:deviceID/bind", dh.BindDevice)
+	devGroup.POST("/devices/:deviceID/unbind", dh.UnbindDevice)
+	devGroup.DELETE("/devices/:deviceID", dh.DeleteDevice)
+
+	return r
 }
