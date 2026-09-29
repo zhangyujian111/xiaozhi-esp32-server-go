@@ -1,0 +1,98 @@
+name: Smoke Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_category:
+        description: 'Test category to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - smoke
+          - integration
+
+  schedule:
+    - cron: '0 2 * * *'
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libopus-dev pkg-config
+
+      - name: Build
+        run: go build -tags silero ./...
+
+      - name: Run smoke tests
+        if: inputs.test_category == 'all' || inputs.test_category == 'smoke'
+        run: go test -tags smoke -count=1 -timeout 60s ./test/smoke/...
+
+      - name: Run integration tests
+        if: inputs.test_category == 'all' || inputs.test_category == 'integration'
+        run: go test -tags integration -count=1 -timeout 120s ./test/integration/...
+
+      - name: Run unit tests
+        if: inputs.test_category == 'all'
+        run: go test -count=1 -timeout 120s ./internal/...
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Check formatting
+        run: |
+          UNFORMATTED=$(gofmt -l .)
+          if [ -n "$UNFORMATTED" ]; then
+            echo "Unformatted files found:"
+            echo "$UNFORMATTED"
+            exit 1
+          fi
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Build default
+        run: go build -o /dev/null ./...
+
+      - name: Build with silero tag
+        run: go build -tags silero -o /dev/null ./...
