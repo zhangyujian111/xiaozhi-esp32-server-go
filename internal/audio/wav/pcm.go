@@ -60,3 +60,13 @@ func WAVToPCM(wav []byte) (pcm []byte, sampleRate, channels, bitsPerSample int, 
 
 	return wav[44:], sampleRate, channels, bitsPerSample, nil
 }
+
+func WAVToPCM16(wavData []byte) []int16 {
+	pcmBytes, _, _, _, _ := WAVToPCM(wavData)
+	n := len(pcmBytes) / 2
+	pcm := make([]int16, n)
+	for i := 0; i < n; i++ {
+		pcm[i] = int16(pcmBytes[i*2]) | int16(pcmBytes[i*2+1])<<8
+	}
+	return pcm
+}
