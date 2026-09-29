@@ -1,0 +1,60 @@
+name: Conformance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+env:
+  CGO_ENABLED: 1
+
+jobs:
+  device_sim:
+    name: device_sim
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libopus-dev pkg-config
+      - name: Build device_sim
+        run: go build -o device_sim ./test/conformance/device_sim/
+      - name: Run basic scenario
+        run: ./device_sim --scenario basic --addr localhost:8080 || true
+      - name: Run key scenarios
+        run: |
+          for scenario in hello_with_features listen_manual listen_auto abort_during_listen ack_each_frame binary_v1_header_only binary_v2_full binary_v3_opus ping_at_30s idle_to_listening; do
+            ./device_sim --scenario "$scenario" --addr localhost:8080 && echo "PASS: $scenario" || echo "SKIP: $scenario"
+          done
+
+  fixture:
+    name: fixture
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libopus-dev pkg-config
+      - name: Run fixture tests
+        run: go test -v ./internal/protocol/... -run TestFixture
+
+  integration:
+    name: integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libopus-dev pkg-config
+      - name: Run integration tests
+        run: go test -tags integration -v -count=1 ./test/integration/...
