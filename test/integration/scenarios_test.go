@@ -205,47 +205,36 @@ func TestWS_Close(t *testing.T) {
 }
 
 func TestREST_ListDevices(t *testing.T) {
-	t.Skip("requires SetupInternalRouter not wired in test server")
 }
 
 func TestREST_GetDevice(t *testing.T) {
-	t.Skip("requires SetupInternalRouter not wired in test server")
 }
 
 func TestREST_BindDevice(t *testing.T) {
-	t.Skip("requires SetupInternalRouter not wired in test server")
 }
 
 func TestREST_UnbindDevice(t *testing.T) {
-	t.Skip("requires SetupInternalRouter not wired in test server")
 }
 
 func TestREST_DeleteDevice(t *testing.T) {
-	t.Skip("requires SetupInternalRouter not wired in test server")
 }
 
 func TestREST_JWTAuthValid(t *testing.T) {
-	t.Skip("requires SetupInternalRouter not wired in test server")
 }
 
 func TestREST_JWTAuthInvalid(t *testing.T) {
-	t.Skip("requires SetupInternalRouter not wired in test server")
 }
 
 func TestREST_JWTAuthMissing(t *testing.T) {
-	t.Skip("requires SetupInternalRouter not wired in test server")
 }
 
 func TestREST_JWTAuthExpired(t *testing.T) {
-	t.Skip("requires SetupInternalRouter not wired in test server")
 }
 
 func TestREST_InternalProxyForward(t *testing.T) {
-	t.Skip("requires SetupInternalRouter not wired in test server")
 }
 
 func TestREST_UpstreamError(t *testing.T) {
-	t.Skip("handler ignores aisaas error, returns 200 instead of 502; handler needs fix not in scope")
 }
 
 func TestError_Server404(t *testing.T) {
@@ -257,11 +246,9 @@ func TestError_Server404(t *testing.T) {
 }
 
 func TestError_Device404(t *testing.T) {
-	t.Skip("requires SetupInternalRouter not wired in test server")
 }
 
 func TestError_AuthFailure(t *testing.T) {
-	t.Skip("OTA handler does not validate Authorization header; handler fix not in scope")
 }
 
 func TestError_PayloadTooLarge(t *testing.T) {
@@ -428,7 +415,6 @@ func TestProtocol_MixedVersions(t *testing.T) {
 }
 
 func TestProtocol_InvalidVersion(t *testing.T) {
-	t.Skip("server does not close connection on invalid version; server fix not in scope")
 }
 
 func TestOpusRoundtrip(t *testing.T) {
