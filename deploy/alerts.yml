@@ -1,0 +1,171 @@
+groups:
+  - name: xiaozhi_ws
+    interval: 30s
+    rules:
+      - alert: WebSocketConnectionsHigh
+        expr: xiaozhi_ws_connections > 160
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "WebSocket connections exceed 80% of max (200)"
+          description: "Current connections: {{ $value }}, max: 200"
+
+      - alert: WebSocketConnectionErrors
+        expr: rate(xiaozhi_ws_connection_errors_total[5m]) > 10
+        for: 1m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "WebSocket connection error rate high"
+          description: "Connection errors rate: {{ $value }} per minute over last 5 minutes"
+
+      - alert: WebSocketDisconnections
+        expr: rate(xiaozhi_ws_disconnections_total[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High WebSocket disconnection rate"
+          description: "Disconnection rate: {{ $value }} per minute"
+
+  - name: xiaozhi_aisaas
+    interval: 30s
+    rules:
+      - alert: AisaasErrorRateHigh
+        expr: rate(xiaozhi_aisaas_calls_total{status="error"}[5m]) > 5
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "Aisaas call error rate exceeds threshold"
+          description: "Error rate: {{ $value }} per minute, threshold: 5/min"
+
+      - alert: AisaasLatencyHigh
+        expr: histogram_quantile(0.99, rate(xiaozhi_aisaas_request_duration_seconds_bucket[5m])) > 3
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Aisaas API latency p99 exceeds 3s"
+          description: "p99 latency: {{ $value }}s"
+
+      - alert: AisaasCallsFailing
+        expr: rate(xiaozhi_aisaas_calls_total{status="error"}[5m]) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Aisaas calls are failing"
+          description: "Failure rate: {{ $value }} per second"
+
+  - name: xiaozhi_database
+    interval: 30s
+    rules:
+      - alert: DatabaseErrors
+        expr: rate(xiaozhi_db_errors_total[5m]) > 1
+        for: 2m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Database error rate exceeds threshold"
+          description: "DB error rate: {{ $value }} per minute"
+
+      - alert: DatabaseConnectionsExhausted
+        expr: xiaozhi_db_connections_active >= xiaozhi_db_connections_max
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "Database connection pool exhausted"
+          description: "Active connections ({{ $value }}) >= max connections"
+
+      - alert: DatabaseQueryLatency
+        expr: histogram_quantile(0.99, rate(xiaozhi_db_query_duration_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Database query latency p99 high"
+          description: "p99 query latency: {{ $value }}s"
+
+  - name: xiaozhi_http
+    interval: 30s
+    rules:
+      - alert: HTTPRequestLatencyHigh
+        expr: histogram_quantile(0.99, rate(xiaozhi_http_request_duration_seconds_bucket[5m])) > 3
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "HTTP request latency p99 exceeds 3s"
+          description: "p99 latency: {{ $value }}s"
+
+      - alert: HTTPRequestErrors
+        expr: rate(xiaozhi_http_requests_total{status=~"5.."}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HTTP 5xx error rate is elevated"
+          description: "5xx error rate: {{ $value }} per second"
+
+      - alert: HTTPRequestRateLow
+        expr: rate(xiaozhi_http_requests_total[5m]) < 0.1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HTTP request rate is unusually low"
+          description: "Request rate: {{ $value }} per second"
+
+  - name: xiaozhi_audio
+    interval: 30s
+    rules:
+      - alert: AudioBufferOverflow
+        expr: rate(xiaozhi_audio_buffer_overflows_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Audio buffer overflow detected"
+          description: "Overflow rate: {{ $value }} per minute"
+
+      - alert: AudioProcessingErrors
+        expr: rate(xiaozhi_audio_processing_errors_total[5m]) > 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Audio processing error rate elevated"
+          description: "Error rate: {{ $value }} per minute"
+
+  - name: xiaozhi_system
+    interval: 30s
+    rules:
+      - alert: HighMemoryUsage
+        expr: process_resident_memory_bytes / process_max_memory_bytes > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Memory usage above 85%"
+          description: "Memory usage: {{ $value | humanizePercentage }}"
+
+      - alert: GoroutineCountHigh
+        expr: go_goroutines > 1000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Goroutine count unusually high"
+          description: "Goroutines: {{ $value }}"
+
+      - alert: ProcessRestarted
+        expr: rate(xiaozhi_process_restarts_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "Process restart detected"
+          description: "Restart rate: {{ $value }} per minute"
