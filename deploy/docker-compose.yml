@@ -1,0 +1,30 @@
+version: "3.8"
+services:
+  xiaozhi-server-go:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    environment:
+      AISAAS_INTERNAL_TOKEN: "${AISAAS_INTERNAL_TOKEN:-dev-token}"
+      DB_DSN: "root:dev@tcp(mysql:3306)/xiaozhi?parseTime=true&charset=utf8mb4"
+    volumes:
+      - ../configs:/configs
+    depends_on:
+      - mysql
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: dev
+      MYSQL_DATABASE: xiaozhi
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+volumes:
+  mysql_data:
