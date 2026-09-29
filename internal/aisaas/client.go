@@ -2,6 +2,7 @@ package aisaas
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -9,15 +10,17 @@ import (
 	"github.com/go-resty/resty/v2"
 )
 
+var ErrNotImplemented = errors.New("not implemented yet")
+
 type Client struct {
 	http          *resty.Client
-	baseURL      string
+	baseURL       string
 	internalToken string
 }
 
 func NewClient(baseURL, internalToken string) *Client {
 	c := resty.New().
-		SetTimeout(30 * time.Second).
+		SetTimeout(30*time.Second).
 		SetHeader("X-Internal-Token", internalToken)
 	return &Client{http: c, baseURL: baseURL, internalToken: internalToken}
 }

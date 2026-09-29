@@ -53,8 +53,8 @@ func TestSentenceSplitter_MixedDelimiters(t *testing.T) {
 	splitter.Feed("问")
 	splitter.Feed("题")
 	splitter.Feed("？")
-	result := splitter.Feed("答案")
-	splitter.Feed("!")
+	splitter.Feed("答案")
+	result := splitter.Feed("!")
 
 	assert.Equal(t, []string{"答案!"}, result)
 }

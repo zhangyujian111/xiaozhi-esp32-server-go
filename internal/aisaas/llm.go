@@ -16,9 +16,9 @@ type ChatMessage struct {
 }
 
 type ChatRequest struct {
-	Model    string       `json:"model"`
+	Model    string        `json:"model"`
 	Messages []ChatMessage `json:"messages"`
-	Stream   bool         `json:"stream"`
+	Stream   bool          `json:"stream"`
 }
 
 func (c *Client) Chat(ctx context.Context, model string, messages []ChatMessage) (io.ReadCloser, error) {
