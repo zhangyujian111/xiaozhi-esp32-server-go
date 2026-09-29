@@ -13,11 +13,12 @@ func InitLogger(level string, format string) zerolog.Logger {
 		zerologLevel = zerolog.InfoLevel
 	}
 
+	zerolog.SetGlobalLevel(zerologLevel)
 	zerolog.TimeFieldFormat = time.RFC3339
 
 	var logger zerolog.Logger
 	if format == "console" {
-		logger = zerolog.New(os.Stdout).With().Timestamp().Logger()
+		logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout}).With().Timestamp().Logger()
 	} else {
 		logger = zerolog.New(os.Stdout).With().Timestamp().Logger()
 	}
