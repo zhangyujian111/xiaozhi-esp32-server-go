@@ -38,3 +38,12 @@ func (b *AudioRingBuffer) Len() int {
 	defer b.mu.Unlock()
 	return len(b.data)
 }
+
+func (b *AudioRingBuffer) WritePCM(pcm []int16) {
+	buf := make([]byte, len(pcm)*2)
+	for i, s := range pcm {
+		buf[i*2] = byte(s)
+		buf[i*2+1] = byte(s >> 8)
+	}
+	b.Write(buf)
+}

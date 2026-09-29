@@ -19,6 +19,11 @@ type Handler struct {
 	sm       *SessionManager
 	aisaas   aisaas.Authenticator
 	log      zerolog.Logger
+	pipeline *AudioPipeline
+}
+
+func (h *Handler) SetPipeline(p *AudioPipeline) {
+	h.pipeline = p
 }
 
 func NewHandler(sm *SessionManager, ac aisaas.Authenticator, log zerolog.Logger) *Handler {
@@ -158,7 +163,10 @@ func (h *Handler) handleAbort(session *ChatSession, raw []byte) {
 	if err := json.Unmarshal(raw, &msg); err != nil {
 		return
 	}
-	session.AudioBuffer().Drain()
+	data := session.AudioBuffer().Drain()
+	if h.pipeline != nil && len(data) > 0 {
+		h.pipeline.FeedBytes(session.ID(), data)
+	}
 	session.TransitionTo(StateIdle)
 	h.log.Info().Str("reason", msg.Reason).Msg("abort received")
 }
