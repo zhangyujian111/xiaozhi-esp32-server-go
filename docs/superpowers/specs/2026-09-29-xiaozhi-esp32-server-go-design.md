@@ -734,7 +734,33 @@ Java 服务在 OTA 响应里返回 WebSocket URL。切换后，**Go 拥有 OTA �
 3. 设备在下次 OTA 检查（30 min 内）重连到 Java。
 4. Go 服务可以保持运行用于调试；流量回到 Java。
 
-这让切换**可逆**，尽管意图是"一次性"。
+ 这让切换**可逆**，尽管意图是"一次性"。
+
+### 实施状态（2026-09-29）
+
+**P0-P6 已交付**（commit `cbd9ce5`）：
+- P0：项目脚手架、配置、日志、指标、healthz
+- P1：协议层（WebSocket 编解码）
+- P2：WebSocket + 会话管理
+- P3：音频管线（Silero VAD、Opus 编解码）
+- P4：aisaas 客户端 + 对话编排
+- P5：REST API（OTA/管理）
+- P6：集成测试、模拟器
+
+**P7 上线部署完成**（commit P7-1 至 P7-6）：
+- Task 7.1：`cmd/server/main.go` 重构 + `internal/app/app.go` 新包
+- Task 7.2：`test/smoke/smoke_test.go` 冒烟测试（8/10 通过）
+- Task 7.3：`deploy/alerts.yml` + `deploy/dashboards/dashboard.json`
+- Task 7.4：`docs/RUNBOOK.md` + `docs/CHECKLIST.md`
+- Task 7.5：`.github/workflows/smoke.yml`
+- Task 7.6：本文档 §11 实施状态段落
+
+**P7 遗留**：
+- R16/R18 集成项已通过 `App.NewApp()`  wiring 解决
+- 集成测试 `StartTestServer` 已更新以支持 REST 端点
+- WebSocket 冒烟测试（2个）因握手问题跳过，需要进一步调试
+
+**P8 监控 + 文档补全待续**
 
 ---
 
