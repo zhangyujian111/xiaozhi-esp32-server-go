@@ -15,15 +15,25 @@ import (
 )
 
 type Handler struct {
-	upgrader websocket.Upgrader
-	sm       *SessionManager
-	aisaas   aisaas.Authenticator
-	log      zerolog.Logger
-	pipeline *AudioPipeline
+	upgrader  websocket.Upgrader
+	sm        *SessionManager
+	aisaas    aisaas.Authenticator
+	log       zerolog.Logger
+	pipeline  *AudioPipeline
+	interrupt InterruptControllerRef
+}
+
+type InterruptControllerRef interface {
+	Trigger()
+	Triggered() bool
 }
 
 func (h *Handler) SetPipeline(p *AudioPipeline) {
 	h.pipeline = p
+}
+
+func (h *Handler) SetInterruptController(ic InterruptControllerRef) {
+	h.interrupt = ic
 }
 
 func NewHandler(sm *SessionManager, ac aisaas.Authenticator, log zerolog.Logger) *Handler {
@@ -151,6 +161,12 @@ func (h *Handler) handleListen(conn *websocket.Conn, session *ChatSession, raw [
 	}
 	switch msg.State {
 	case protocol.ListenStateStart:
+		if h.interrupt != nil && h.interrupt.Triggered() {
+			return
+		}
+		if h.interrupt != nil {
+			h.interrupt.Trigger()
+		}
 		session.TransitionTo(StateListening)
 	case protocol.ListenStateStop:
 		session.TransitionTo(StateIdle)

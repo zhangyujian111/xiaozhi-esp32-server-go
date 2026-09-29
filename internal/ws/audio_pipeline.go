@@ -5,10 +5,15 @@ import (
 )
 
 type AudioPipeline struct {
-	sm      *SessionManager
-	vad     vad.VAD
-	service *vad.Service
-	eventCh chan AudioEvent
+	sm        *SessionManager
+	vad       vad.VAD
+	service   *vad.Service
+	eventCh   chan AudioEvent
+	interrupt InterruptTrigger
+}
+
+type InterruptTrigger interface {
+	Trigger()
 }
 
 type AudioEvent struct {
@@ -26,6 +31,10 @@ func NewAudioPipeline(sm *SessionManager, v vad.VAD, speechTh, silenceTh float32
 	return p
 }
 
+func (p *AudioPipeline) SetInterruptTrigger(trigger InterruptTrigger) {
+	p.interrupt = trigger
+}
+
 func (p *AudioPipeline) Feed(sessionID string, pcm []int16) {
 	session, ok := p.sm.Get(sessionID)
 	if !ok {
@@ -33,6 +42,9 @@ func (p *AudioPipeline) Feed(sessionID string, pcm []int16) {
 	}
 
 	status := p.service.Feed(pcm)
+	if status == vad.SpeechStart && p.interrupt != nil {
+		p.interrupt.Trigger()
+	}
 	if status != vad.Silence {
 		evt := AudioEvent{SessionID: session.ID(), Status: status}
 		select {
