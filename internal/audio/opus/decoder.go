@@ -1,27 +1,29 @@
 package opus
 
 import (
-	"github.com/pion/opus"
+	"github.com/hraban/opus"
 )
 
 type Decoder struct {
-	dec      opus.Decoder
-	channels int
+	sampleRate int
+	channels   int
+	dec        *opus.Decoder
 }
 
 func NewDecoder(sampleRate, channels int) (*Decoder, error) {
-	dec, err := opus.NewDecoderWithOutput(sampleRate, channels)
+	dec, err := opus.NewDecoder(sampleRate, channels)
 	if err != nil {
 		return nil, err
 	}
-	return &Decoder{dec: dec, channels: channels}, nil
+	return &Decoder{sampleRate: sampleRate, channels: channels, dec: dec}, nil
 }
 
 func (d *Decoder) Decode(input []byte) ([]int16, error) {
-	out := make([]int16, 8192)
-	n, err := d.dec.DecodeToInt16(input, out)
+	maxFrameSamples := d.sampleRate * 60 / 1000
+	pcm := make([]int16, maxFrameSamples*d.channels)
+	n, err := d.dec.Decode(input, pcm)
 	if err != nil {
 		return nil, err
 	}
-	return out[:n], nil
+	return pcm[:n], nil
 }

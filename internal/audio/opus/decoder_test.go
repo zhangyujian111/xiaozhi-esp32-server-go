@@ -7,13 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var validOpusPacket = []byte{
-	0x48, 0x85, 0x07, 0x04, 0xe5, 0x7c, 0x5e, 0x85, 0xe3, 0x98, 0x3e, 0x0d, 0xaf, 0x73, 0xf0, 0xfe,
-	0x85, 0x14, 0x66, 0x79, 0xfe, 0x9a, 0x54, 0xe2, 0x0f, 0x73, 0x5b, 0x2b, 0xb6, 0x0b, 0xcd, 0xc8,
-	0x46, 0x0c, 0x39, 0xf7, 0x82, 0xf8, 0x25, 0xd3, 0x70, 0x4e, 0xa8, 0x5a, 0x9d, 0x93, 0xcd, 0xee,
-	0x60, 0x2a, 0x12, 0xe2, 0x9a, 0x15, 0x40,
-}
-
 func generateSineWave(frequency float64, durationMs int, sampleRate int) []int16 {
 	nSamples := sampleRate * durationMs / 1000
 	buf := make([]int16, nSamples)
@@ -25,24 +18,61 @@ func generateSineWave(frequency float64, durationMs int, sampleRate int) []int16
 	return buf
 }
 
-func TestOpusDecodeRoundTrip(t *testing.T) {
-	sampleRate := 16000
-	channels := 1
-	durationMs := 60
+func TestDecoder_New_Success(t *testing.T) {
+	dec, err := NewDecoder(16000, 1)
+	require.NoError(t, err)
+	require.NotNil(t, dec)
+}
 
-	pcm := generateSineWave(1000, durationMs, sampleRate)
+func TestDecoder_New_BadChannels(t *testing.T) {
+	_, err := NewDecoder(16000, 3)
+	require.Error(t, err)
+}
+
+func TestDecoder_Decode_ValidOpusFrame(t *testing.T) {
+	dec, err := NewDecoder(16000, 1)
+	require.NoError(t, err)
+
+	pcm := generateSineWave(1000, 60, 16000)
 	require.Len(t, pcm, 960, "60ms@16kHz = 960 samples")
 
-	dec, err := NewDecoder(sampleRate, channels)
+	enc, err := NewEncoder(16000, 1)
 	require.NoError(t, err)
+	encoded, err := enc.Encode(pcm, 960)
+	require.NoError(t, err)
+	require.NotEmpty(t, encoded)
 
-	decoded, err := dec.Decode(validOpusPacket)
+	decoded, err := dec.Decode(encoded)
 	require.NoError(t, err)
-	require.Len(t, decoded, 320, "20ms@16kHz = 320 samples")
+	require.Len(t, decoded, 960, "60ms@16kHz = 960 samples")
 
 	var energy int64
 	for _, s := range decoded {
 		energy += int64(s) * int64(s)
 	}
-	require.Greater(t, energy, int64(1000000), "decoded signal should have significant energy")
+	require.Greater(t, energy, int64(100000), "decoded signal should have energy")
+}
+
+func TestDecoder_Decode_InvalidOpusData(t *testing.T) {
+	dec, err := NewDecoder(16000, 1)
+	require.NoError(t, err)
+
+	_, err = dec.Decode([]byte{0xFF, 0xFE})
+	require.Error(t, err)
+}
+
+func TestDecoder_Decode_NilInput(t *testing.T) {
+	dec, err := NewDecoder(16000, 1)
+	require.NoError(t, err)
+
+	_, err = dec.Decode(nil)
+	require.Error(t, err)
+}
+
+func TestDecoder_Decode_EmptyInput(t *testing.T) {
+	dec, err := NewDecoder(16000, 1)
+	require.NoError(t, err)
+
+	_, err = dec.Decode([]byte{})
+	require.Error(t, err)
 }

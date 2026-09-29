@@ -1,17 +1,28 @@
 package opus
 
 import (
-	"errors"
+	"github.com/hraban/opus"
 )
 
 type Encoder struct {
-	channels int
+	sampleRate int
+	channels   int
+	enc        *opus.Encoder
 }
 
-func NewEncoder(sampleRate, channels, application int) (*Encoder, error) {
-	return nil, errors.New("opus encoding not supported in pure-Go pion/opus; use Decoder for decode-only MVP; P5+ requires encoding then switch libopus via CGO route")
+func NewEncoder(sampleRate, channels int) (*Encoder, error) {
+	enc, err := opus.NewEncoder(sampleRate, channels, opus.AppVoIP)
+	if err != nil {
+		return nil, err
+	}
+	return &Encoder{sampleRate: sampleRate, channels: channels, enc: enc}, nil
 }
 
 func (e *Encoder) Encode(pcm []int16, frameSize int) ([]byte, error) {
-	return nil, errors.New("opus encoding not supported in pure-Go pion/opus; use Decoder for decode-only MVP; P5+ requires encoding then switch libopus via CGO route")
+	data := make([]byte, 4000)
+	n, err := e.enc.Encode(pcm, data)
+	if err != nil {
+		return nil, err
+	}
+	return data[:n], nil
 }
