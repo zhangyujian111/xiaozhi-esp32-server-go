@@ -1,0 +1,1 @@
+{"name":"081_binary_v2_short_frame","type":"binary_v2","input_hex":"02000000000000000000","expected":{"error":"short_frame"},"expect_error":true}

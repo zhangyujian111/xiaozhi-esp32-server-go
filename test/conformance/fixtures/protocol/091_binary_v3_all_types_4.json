@@ -1,0 +1,1 @@
+{"name":"091_binary_v3_all_types_4","type":"binary_v3","input_hex":"0400010034","expected":{"type":4,"payload_size":1},"expect_error":false}

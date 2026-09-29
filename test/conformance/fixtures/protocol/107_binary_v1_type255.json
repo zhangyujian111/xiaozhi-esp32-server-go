@@ -1,0 +1,1 @@
+{"name":"107_binary_v1_type255","type":"binary_v1","input_hex":"ff","expected":{"payload_size":1},"expect_error":false}

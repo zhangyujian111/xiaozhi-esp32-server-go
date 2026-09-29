@@ -1,0 +1,1 @@
+{"name":"011_listen_detect","type":"listen","input_hex":"7b2274797065223a226c697374656e222c2273657373696f6e5f6964223a2273657373313233222c227374617465223a22646574656374222c226d6f6465223a226175746f227d","expected":{"type":"listen","session_id":"sess123","state":"detect","mode":"auto"},"expect_error":false}

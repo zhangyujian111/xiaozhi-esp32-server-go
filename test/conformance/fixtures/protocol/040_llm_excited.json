@@ -1,0 +1,1 @@
+{"name":"040_llm_excited","type":"llm","input_hex":"7b2274797065223a226c6c6d222c22656d6f74696f6e223a2265786369746564222c22616374696f6e223a22737065616b222c2274657874223a22776f77227d","expected":{"type":"llm","emotion":"excited","action":"speak","text":"wow"},"expect_error":false}

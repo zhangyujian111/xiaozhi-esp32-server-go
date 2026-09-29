@@ -1,0 +1,1 @@
+{"name":"100_malformed_invalid_tts_state","type":"error","input_hex":"7b2274797065223a22747473222c227374617465223a22696e76616c69645f7374617465227d","expected":{"type":"tts","state":"invalid_state"},"expect_error":true}

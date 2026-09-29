@@ -1,0 +1,1 @@
+{"name":"074_binary_v2_all_types_4","type":"binary_v2","input_hex":"020004000000000068000000020000007434","expected":{"version":2,"type":4,"timestamp":104,"payload_size":2},"expect_error":false}

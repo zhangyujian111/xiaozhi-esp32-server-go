@@ -1,0 +1,1 @@
+{"name":"101_malformed_features_not_object","type":"error","input_hex":"7b2274797065223a2268656c6c6f222c2276657273696f6e223a312c226665617475726573223a226e6f742d6f626a656374227d","expected":{"type":"hello","version":1,"features":"not-object"},"expect_error":true}

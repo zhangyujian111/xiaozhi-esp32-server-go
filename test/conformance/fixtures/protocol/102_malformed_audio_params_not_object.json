@@ -1,0 +1,1 @@
+{"name":"102_malformed_audio_params_not_object","type":"error","input_hex":"7b2274797065223a2268656c6c6f222c22617564696f5f706172616d73223a226e6f742d6f626a656374227d","expected":{"type":"hello","audio_params":"not-object"},"expect_error":true}

@@ -1,0 +1,1 @@
+{"name":"037_llm_neutral","type":"llm","input_hex":"7b2274797065223a226c6c6d222c22656d6f74696f6e223a226e65757472616c222c22616374696f6e223a22737065616b222c2274657874223a2268656c6c6f227d","expected":{"type":"llm","emotion":"neutral","action":"speak","text":"hello"},"expect_error":false}

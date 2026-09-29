@@ -1,0 +1,1 @@
+{"name":"056_iot_thermostat","type":"iot","input_hex":"7b2274797065223a22696f74222c2273657373696f6e5f6964223a2273657373313233222c227374617465223a7b226d6f6465223a226175746f222c2274656d7065726174757265223a32327d7d","expected":{"type":"iot","session_id":"sess123","state":{"mode":"auto","temperature":22}},"expect_error":false}

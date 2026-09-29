@@ -1,0 +1,1 @@
+{"name":"027_tts_stop","type":"tts","input_hex":"7b2274797065223a22747473222c227374617465223a2273746f70227d","expected":{"type":"tts","state":"stop"},"expect_error":false}

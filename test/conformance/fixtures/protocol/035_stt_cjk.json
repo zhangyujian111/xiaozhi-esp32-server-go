@@ -1,0 +1,1 @@
+{"name":"035_stt_cjk","type":"stt","input_hex":"7b2274797065223a22737474222c2274657874223a2274657374206368696e657365227d","expected":{"type":"stt","text":"test chinese"},"expect_error":false}

@@ -1,0 +1,1 @@
+{"name":"096_malformed_version","type":"error","input_hex":"7b2274797065223a2268656c6c6f222c2276657273696f6e223a39397d","expected":{"type":"hello","version":99},"expect_error":true}

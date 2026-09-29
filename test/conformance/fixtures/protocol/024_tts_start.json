@@ -1,0 +1,1 @@
+{"name":"024_tts_start","type":"tts","input_hex":"7b2274797065223a22747473222c227374617465223a227374617274227d","expected":{"type":"tts","state":"start"},"expect_error":false}

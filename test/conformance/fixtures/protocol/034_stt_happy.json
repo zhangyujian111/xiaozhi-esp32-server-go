@@ -1,0 +1,1 @@
+{"name":"034_stt_happy","type":"stt","input_hex":"7b2274797065223a22737474222c2274657874223a224920616d206861707079222c22656d6f74696f6e223a226861707079227d","expected":{"type":"stt","text":"I am happy","emotion":"happy"},"expect_error":false}

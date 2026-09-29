@@ -1,0 +1,1 @@
+{"name":"052_iot_power_on","type":"iot","input_hex":"7b2274797065223a22696f74222c2273657373696f6e5f6964223a2273657373313233222c226d73674964223a22696f742d31222c227374617465223a7b22706f776572223a226f6e227d7d","expected":{"type":"iot","session_id":"sess123","msgId":"iot-1","state":{"power":"on"}},"expect_error":false}

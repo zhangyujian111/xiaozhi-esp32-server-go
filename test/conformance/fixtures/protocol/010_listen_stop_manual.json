@@ -1,0 +1,1 @@
+{"name":"010_listen_stop_manual","type":"listen","input_hex":"7b2274797065223a226c697374656e222c2273657373696f6e5f6964223a2273657373313233222c227374617465223a2273746f70222c226d6f6465223a226d616e75616c227d","expected":{"type":"listen","session_id":"sess123","state":"stop","mode":"manual"},"expect_error":false}

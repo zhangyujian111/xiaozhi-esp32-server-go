@@ -1,0 +1,1 @@
+{"name":"055_iot_no_session","type":"iot","input_hex":"7b2274797065223a22696f74222c227374617465223a7b22706f776572223a226f6e227d7d","expected":{"type":"iot","state":{"power":"on"}},"expect_error":false}

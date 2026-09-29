@@ -1,0 +1,1 @@
+{"name":"103_malformed_mcp_payload_not_object","type":"error","input_hex":"7b2274797065223a226d6370222c2273657373696f6e5f6964223a2273657373313233222c227061796c6f6164223a226e6f742d6f626a656374227d","expected":{"type":"mcp","session_id":"sess123","payload":"not-object"},"expect_error":true}

@@ -1,0 +1,1 @@
+{"name":"030_tts_sentence_cjk","type":"tts","input_hex":"7b2274797065223a22747473222c227374617465223a2273656e74656e63655f7374617274222c2274657874223a227468697320697320636a6b227d","expected":{"type":"tts","state":"sentence_start","text":"this is cjk"},"expect_error":false}

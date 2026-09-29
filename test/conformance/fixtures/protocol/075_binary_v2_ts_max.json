@@ -1,0 +1,1 @@
+{"name":"075_binary_v2_ts_max","type":"binary_v2","input_hex":"0200000000000000ffffffff0400000064617461","expected":{"version":2,"type":0,"timestamp":4294967295,"payload_size":4},"expect_error":false}

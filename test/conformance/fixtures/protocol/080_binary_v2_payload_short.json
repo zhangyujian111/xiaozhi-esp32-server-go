@@ -1,0 +1,1 @@
+{"name":"080_binary_v2_payload_short","type":"binary_v2","input_hex":"0200000000000000000000006400000073686f7274","expected":{"error":"payload_size_mismatch"},"expect_error":true}

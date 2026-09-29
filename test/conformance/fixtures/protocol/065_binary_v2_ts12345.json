@@ -1,0 +1,1 @@
+{"name":"065_binary_v2_ts12345","type":"binary_v2","input_hex":"0200000000000000393000000400000074657374","expected":{"version":2,"type":0,"timestamp":12345,"payload_size":4},"expect_error":false}

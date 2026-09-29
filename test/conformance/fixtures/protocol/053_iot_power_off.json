@@ -1,0 +1,1 @@
+{"name":"053_iot_power_off","type":"iot","input_hex":"7b2274797065223a22696f74222c2273657373696f6e5f6964223a2273657373313233222c226d73674964223a22696f742d32222c227374617465223a7b22706f776572223a226f6666222c226272696768746e657373223a307d7d","expected":{"type":"iot","session_id":"sess123","msgId":"iot-2","state":{"power":"off","brightness":0}},"expect_error":false}

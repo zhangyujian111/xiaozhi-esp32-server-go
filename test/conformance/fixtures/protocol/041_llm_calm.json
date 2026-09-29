@@ -1,0 +1,1 @@
+{"name":"041_llm_calm","type":"llm","input_hex":"7b2274797065223a226c6c6d222c22656d6f74696f6e223a2263616c6d222c22616374696f6e223a22737065616b222c2274657874223a22736c6f77227d","expected":{"type":"llm","emotion":"calm","action":"speak","text":"slow"},"expect_error":false}

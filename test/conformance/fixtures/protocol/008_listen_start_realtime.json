@@ -1,0 +1,1 @@
+{"name":"008_listen_start_realtime","type":"listen","input_hex":"7b2274797065223a226c697374656e222c2273657373696f6e5f6964223a2273657373313233222c227374617465223a227374617274222c226d6f6465223a227265616c74696d65227d","expected":{"type":"listen","session_id":"sess123","state":"start","mode":"realtime"},"expect_error":false}

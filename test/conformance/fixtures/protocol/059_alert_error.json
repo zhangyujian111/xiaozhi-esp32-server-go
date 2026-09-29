@@ -1,0 +1,1 @@
+{"name":"059_alert_error","type":"alert","input_hex":"7b2274797065223a22616c657274222c22737461747573223a226572726f72222c226d657373616765223a22436f6e6e656374696f6e206c6f7374227d","expected":{"type":"alert","status":"error","message":"Connection lost"},"expect_error":false}

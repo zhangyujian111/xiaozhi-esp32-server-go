@@ -1,0 +1,1 @@
+{"name":"032_stt_basic","type":"stt","input_hex":"7b2274797065223a22737474222c2274657874223a2268656c6c6f20736572766572227d","expected":{"type":"stt","text":"hello server"},"expect_error":false}

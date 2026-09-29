@@ -1,0 +1,1 @@
+{"name":"106_binary_v1_multi","type":"binary_v1","input_hex":"02030405","expected":{"payload_size":4},"expect_error":false}

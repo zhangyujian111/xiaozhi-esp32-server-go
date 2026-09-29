@@ -1,0 +1,1 @@
+{"name":"028_tts_stop_reason","type":"tts","input_hex":"7b2274797065223a22747473222c227374617465223a2273746f70222c22726561736f6e223a2277616b655f776f72645f6465746563746564227d","expected":{"type":"tts","state":"stop","reason":"wake_word_detected"},"expect_error":false}

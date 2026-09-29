@@ -1,0 +1,1 @@
+{"name":"058_alert_warning","type":"alert","input_hex":"7b2274797065223a22616c657274222c22737461747573223a227761726e696e67222c226d657373616765223a224c6f772062617474657279227d","expected":{"type":"alert","status":"warning","message":"Low battery"},"expect_error":false}

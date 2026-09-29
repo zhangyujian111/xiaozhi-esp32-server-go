@@ -1,0 +1,1 @@
+{"name":"061_system_session_end","type":"system","input_hex":"7b2274797065223a2273797374656d222c226576656e74223a2273657373696f6e5f656e64222c2273657373696f6e5f6964223a2273657373313233227d","expected":{"type":"system","event":"session_end","session_id":"sess123"},"expect_error":false}

@@ -1,0 +1,1 @@
+{"name":"036_stt_no_text","type":"stt","input_hex":"7b2274797065223a22737474222c22656d6f74696f6e223a226e65757472616c227d","expected":{"type":"stt","emotion":"neutral"},"expect_error":false}

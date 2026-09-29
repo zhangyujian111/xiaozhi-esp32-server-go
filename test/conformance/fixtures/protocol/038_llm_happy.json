@@ -1,0 +1,1 @@
+{"name":"038_llm_happy","type":"llm","input_hex":"7b2274797065223a226c6c6d222c22656d6f74696f6e223a226861707079222c22616374696f6e223a22737065616b222c2274657874223a226772656174227d","expected":{"type":"llm","emotion":"happy","action":"speak","text":"great"},"expect_error":false}

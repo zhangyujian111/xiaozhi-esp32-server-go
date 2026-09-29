@@ -1,0 +1,1 @@
+{"name":"099_malformed_invalid_listen_mode","type":"error","input_hex":"7b2274797065223a226c697374656e222c2273657373696f6e5f6964223a2273657373313233222c226d6f6465223a22696e76616c69645f6d6f6465227d","expected":{"type":"listen","session_id":"sess123","mode":"invalid_mode"},"expect_error":true}

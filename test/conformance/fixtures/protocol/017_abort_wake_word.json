@@ -1,0 +1,1 @@
+{"name":"017_abort_wake_word","type":"abort","input_hex":"7b2274797065223a2261626f7274222c2273657373696f6e5f6964223a2273657373313233222c22726561736f6e223a2277616b655f776f72645f6465746563746564227d","expected":{"type":"abort","session_id":"sess123","reason":"wake_word_detected"},"expect_error":false}

@@ -1,0 +1,1 @@
+{"name":"057_alert_info","type":"alert","input_hex":"7b2274797065223a22616c657274222c22737461747573223a22696e666f222c226d657373616765223a22446576696365206f6e6c696e65227d","expected":{"type":"alert","status":"info","message":"Device online"},"expect_error":false}

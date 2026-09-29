@@ -1,0 +1,1 @@
+{"name":"086_binary_v3_ts1","type":"binary_v3","input_hex":"01000f007b226a736f6e223a2264617461227d","expected":{"type":1,"payload_size":15},"expect_error":false}

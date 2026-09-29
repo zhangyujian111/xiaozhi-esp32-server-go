@@ -1,0 +1,1 @@
+{"name":"026_tts_sentence_end","type":"tts","input_hex":"7b2274797065223a22747473222c227374617465223a2273656e74656e63655f656e64222c2274657874223a2248656c6c6f20776f726c642e227d","expected":{"type":"tts","state":"sentence_end","text":"Hello world."},"expect_error":false}

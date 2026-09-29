@@ -1,0 +1,1 @@
+{"name":"020_ack_json_msg","type":"ack","input_hex":"7b2274797065223a2261636b222c2273657373696f6e4964223a2273657373313233222c226d736754797065223a226a736f6e222c226d73674964223a226d73672d32222c22737461747573223a226f6b227d","expected":{"type":"ack","sessionId":"sess123","msgType":"json","msgId":"msg-2","status":"ok"},"expect_error":false}

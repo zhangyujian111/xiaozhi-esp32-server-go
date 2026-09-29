@@ -1,0 +1,1 @@
+{"name":"002_hello_basic_v2","type":"hello","input_hex":"7b2274797065223a2268656c6c6f222c2276657273696f6e223a322c227472616e73706f7274223a22776562736f636b6574227d","expected":{"type":"hello","version":2,"transport":"websocket"},"expect_error":false}

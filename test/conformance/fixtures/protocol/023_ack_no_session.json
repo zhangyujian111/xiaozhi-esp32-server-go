@@ -1,0 +1,1 @@
+{"name":"023_ack_no_session","type":"ack","input_hex":"7b2274797065223a2261636b222c226d736754797065223a2262696e617279222c226d73674964223a226672616d652d31222c22737461747573223a226f6b227d","expected":{"type":"ack","msgType":"binary","msgId":"frame-1","status":"ok"},"expect_error":false}

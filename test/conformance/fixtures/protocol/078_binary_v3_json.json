@@ -1,0 +1,1 @@
+{"name":"078_binary_v3_json","type":"binary_v3","input_hex":"010007007b2261223a317d","expected":{"type":1,"payload_size":7},"expect_error":false}
