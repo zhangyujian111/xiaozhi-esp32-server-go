@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -67,6 +68,19 @@ type smokeEnv struct {
 
 func startSmokeApp(t *testing.T) (*smokeEnv, string, string) {
 	testCfg := *testConfig
+
+	mockAisaas := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/internal/api/v1/devices/") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"device_id":"` + r.URL.Path[len("/internal/v1/devices/"):] + `","name":"test-device","activated":true}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	testCfg.Aisaas.BaseURL = mockAisaas.URL
+
+	t.Cleanup(func() { mockAisaas.Close() })
 
 	appInstance, err := app.NewApp(&testCfg)
 	require.NoError(t, err)
