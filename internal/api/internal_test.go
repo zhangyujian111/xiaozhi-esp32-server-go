@@ -190,3 +190,18 @@ func TestInternalProxy_UpstreamUnreachable_502(t *testing.T) {
 
 	require.Equal(t, http.StatusBadGateway, w.Code)
 }
+
+func TestStripPrefix_RemovesPrefix(t *testing.T) {
+	result := stripPrefix("/api/internal/v1/devices", "/api/internal/v1")
+	require.Equal(t, "/devices", result)
+}
+
+func TestStripPrefix_PreservesRoot(t *testing.T) {
+	result := stripPrefix("/other/path", "/api/internal/v1")
+	require.Equal(t, "/other/path", result)
+}
+
+func TestStripPrefix_EmptyPath(t *testing.T) {
+	result := stripPrefix("", "/api/internal/v1")
+	require.Equal(t, "", result)
+}

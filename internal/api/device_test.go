@@ -291,3 +291,54 @@ func TestInternalJWT_NonAdminRole_403(t *testing.T) {
 
 	require.Equal(t, http.StatusForbidden, w.Code)
 }
+
+func TestDeviceCRUD_BindDevice_DeviceNotFound_404(t *testing.T) {
+	r, ms := setupDeviceRouter()
+	ms.getErr = store.ErrDeviceNotFound
+
+	body := map[string]int64{"user_id": 123}
+	b, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", "/api/internal/v1/devices/nonexistent/bind", bytes.NewReader(b))
+	req.Header.Set("Authorization", "Bearer "+makeAdminJWT("test-internal-jwt-secret"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestDeviceCRUD_BindDevice_InvalidUserID_400(t *testing.T) {
+	r, _ := setupDeviceRouter()
+
+	req, _ := http.NewRequest("POST", "/api/internal/v1/devices/dev1/bind", bytes.NewReader([]byte("invalid json")))
+	req.Header.Set("Authorization", "Bearer "+makeAdminJWT("test-internal-jwt-secret"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestDeviceCRUD_UnbindDevice_DeviceNotFound_404(t *testing.T) {
+	r, ms := setupDeviceRouter()
+	ms.unbindErr = store.ErrDeviceNotFound
+
+	req, _ := http.NewRequest("POST", "/api/internal/v1/devices/nonexistent/unbind", nil)
+	req.Header.Set("Authorization", "Bearer "+makeAdminJWT("test-internal-jwt-secret"))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestDeviceCRUD_DeleteDevice_DeviceNotFound_404(t *testing.T) {
+	r, ms := setupDeviceRouter()
+	ms.getErr = store.ErrDeviceNotFound
+
+	req, _ := http.NewRequest("DELETE", "/api/internal/v1/devices/nonexistent", nil)
+	req.Header.Set("Authorization", "Bearer "+makeAdminJWT("test-internal-jwt-secret"))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusNotFound, w.Code)
+}
