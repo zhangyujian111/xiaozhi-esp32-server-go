@@ -114,9 +114,13 @@ func StartTestServer(t *testing.T) (*testEnv, sqlmock.Sqlmock) {
 	wsh.SetEventBus(event.NewEventBus(100))
 
 	apiHandler := api.SetupAPIRouter(cfg, ds)
+	internalHandler := api.SetupInternalRouter(cfg.Server.InternalToken, ds)
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiHandler)
+	mux.Handle("/api/internal/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		internalHandler.ServeHTTP(w, r)
+	}))
 	mux.Handle("/ws", http.HandlerFunc(wsh.HandleUpgrade))
 
 	server := httptest.NewServer(mux)
