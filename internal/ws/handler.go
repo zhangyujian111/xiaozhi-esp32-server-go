@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/aisaas"
+	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/event"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/protocol"
 )
 
@@ -21,6 +22,7 @@ type Handler struct {
 	log       zerolog.Logger
 	pipeline  *AudioPipeline
 	interrupt InterruptControllerRef
+	eventBus  event.EventBusInterface
 }
 
 type InterruptControllerRef interface {
@@ -34,6 +36,10 @@ func (h *Handler) SetPipeline(p *AudioPipeline) {
 
 func (h *Handler) SetInterruptController(ic InterruptControllerRef) {
 	h.interrupt = ic
+}
+
+func (h *Handler) SetEventBus(bus event.EventBusInterface) {
+	h.eventBus = bus
 }
 
 func NewHandler(sm *SessionManager, ac aisaas.Authenticator, log zerolog.Logger) *Handler {
@@ -97,10 +103,17 @@ func newSessionID() string {
 
 func (h *Handler) serveConn(conn *websocket.Conn, session *ChatSession) {
 	defer func() {
+		if h.eventBus != nil {
+			h.eventBus.Publish(event.NewDeviceDisconnectedEvent(session.DeviceID(), session.ID()))
+		}
 		h.sm.Remove(session.ID())
 		conn.Close()
 		session.TransitionTo(StateIdle)
 	}()
+
+	if h.eventBus != nil {
+		h.eventBus.Publish(event.NewDeviceConnectedEvent(session.DeviceID(), session.ID()))
+	}
 
 	for {
 		msgType, data, err := conn.ReadMessage()
