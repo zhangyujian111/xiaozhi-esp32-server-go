@@ -33,7 +33,9 @@ func TestClient_GetDevice_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, info)
 	assert.Equal(t, "device123", info.DeviceID)
+	assert.Equal(t, int64(1), info.TenantID)
 	assert.Equal(t, int64(1), info.UserID)
+	assert.Equal(t, "abc123", info.BindCode)
 }
 
 func TestClient_GetDevice_NotRegistered(t *testing.T) {

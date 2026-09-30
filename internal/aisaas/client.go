@@ -35,6 +35,11 @@ type DeviceInfo struct {
 	TTSConfigID int    `json:"ttsConfigId"`
 	STTConfigID int    `json:"sttConfigId"`
 	VoiceName   string `json:"voiceName"`
+
+	// PR-4 新增：bind-code 端点返回的实际绑定码（设备显示给用户）
+	// TenantID 对应 aisaas 内部租户 ID（设备开户时的租户）
+	BindCode string `json:"bindCode"`
+	TenantID int64  `json:"tenantId"`
 }
 
 // Persona 对齐 aisaas PersonaResp（按字段子集：orchestrator 仅用 system prompt + 元数据）。
@@ -72,7 +77,12 @@ func (c *Client) GetDevice(ctx context.Context, deviceID string) (*DeviceInfo, e
 	if resp.StatusCode() != http.StatusOK {
 		return nil, fmt.Errorf("get device failed: status=%d body=%s", resp.StatusCode(), resp.String())
 	}
-	return &DeviceInfo{DeviceID: bindResp.DeviceID, UserID: bindResp.TenantID}, nil
+	return &DeviceInfo{
+		DeviceID: bindResp.DeviceID,
+		TenantID: bindResp.TenantID,
+		UserID:   bindResp.TenantID, // 历史语义：userId 实际指 tenantId
+		BindCode: bindResp.BindCode,
+	}, nil
 }
 
 var ErrDeviceNotRegistered = fmt.Errorf("device not registered with aisaas")
