@@ -134,3 +134,86 @@ func TestNewClient_SetsHeaders(t *testing.T) {
 	client := NewClient(srv.URL, "test-token")
 	_, _ = client.GetDevice(context.Background(), "x")
 }
+
+func TestClient_GetPersonaByDevice_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/internal/api/v1/personas/by-device", r.URL.Path)
+		assert.Equal(t, "device123", r.URL.Query().Get("deviceId"))
+		assert.Equal(t, "1001", r.URL.Query().Get("tenantId"))
+		assert.Equal(t, "test-token", r.Header.Get("X-Internal-Token"))
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{
+			"code": 0,
+			"data": [{
+				"id": "2105202601480949760",
+				"code": "hakumi02",
+				"name": "hakumi",
+				"modelType": "llm",
+				"tenantId": "1001",
+				"systemPrompt": "You are Hakumi.",
+				"defaultModelId": "demo-chat",
+				"temperature": 0.7,
+				"topP": 0.9,
+				"maxTokens": 4096,
+				"memoryType": "none"
+			}]
+		}`))
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "test-token")
+	p, err := client.GetPersonaByDevice(context.Background(), "device123", 1001)
+
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	assert.Equal(t, int64(2105202601480949760), p.ID)
+	assert.Equal(t, "hakumi02", p.Code)
+	assert.Equal(t, "hakumi", p.Name)
+	assert.Equal(t, "You are Hakumi.", p.SystemPrompt)
+	assert.Equal(t, int64(1001), p.TenantID)
+}
+
+func TestClient_GetPersonaByDevice_NotBound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"code":40404,"message":"设备未绑定 Persona"}`))
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "test-token")
+	_, err := client.GetPersonaByDevice(context.Background(), "device123", 1001)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrPersonaNotBound)
+}
+
+func TestClient_GetPersonaByDevice_EmptyData(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"code":0,"data":[]}`))
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "test-token")
+	_, err := client.GetPersonaByDevice(context.Background(), "device123", 1001)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrPersonaNotBound)
+}
+
+func TestClient_GetPersonaByDevice_ServerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("internal error"))
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "test-token")
+	_, err := client.GetPersonaByDevice(context.Background(), "device123", 1001)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "status=500")
+}

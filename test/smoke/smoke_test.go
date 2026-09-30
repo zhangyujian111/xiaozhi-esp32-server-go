@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/app"
+	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/audio/opus"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/config"
 )
 
@@ -70,10 +71,37 @@ func startSmokeApp(t *testing.T) (*smokeEnv, string, string) {
 	testCfg := *testConfig
 
 	mockAisaas := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/internal/api/v1/devices/") {
+		if strings.HasPrefix(r.URL.Path, "/internal/api/v1/devices/") && strings.HasSuffix(r.URL.Path, "/bind-code") {
+			deviceID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/internal/api/v1/devices/"), "/bind-code")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"device_id":"` + r.URL.Path[len("/internal/v1/devices/"):] + `","name":"test-device","activated":true}`))
+			w.Write([]byte(`{"deviceId":"` + deviceID + `","tenantId":1001,"bindCode":"abc123"}`))
+			return
+		}
+		if r.URL.Path == "/internal/api/v1/personas/by-device" {
+			// 烟测场景：设备未绑定 persona（404），orchestrator 必须继续（无 system prompt）。
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"code":40404,"message":"设备未绑定 Persona"}`))
+			return
+		}
+		if r.URL.Path == "/v1/audio/transcriptions" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"text":"hello"}`))
+			return
+		}
+		if r.URL.Path == "/v1/chat/completions" {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`data: {"choices":[{"delta":{"content":"Hi"}}]}` + "\n\ndata: [DONE]\n\n"))
+			return
+		}
+		if r.URL.Path == "/v1/audio/speech" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-Audio-Format", "wav")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("--fake tts audio--"))
 			return
 		}
 		http.NotFound(w, r)
@@ -335,4 +363,84 @@ func TestSmoke_WebSocket_ListenStart(t *testing.T) {
 	}
 	err = conn.WriteJSON(listenMsg)
 	require.NoError(t, err)
+}
+
+// TestSmoke_WebSocket_ListenStop_TriggersOrchestrator 验证 listen-stop 触发完整 dialogue 链路（STT -> Chat -> TTS -> 回写）。
+func TestSmoke_WebSocket_ListenStop_TriggersOrchestrator(t *testing.T) {
+	_, _, wsAddr := startSmokeApp(t)
+
+	u := url.URL{Scheme: "ws", Host: wsAddr, Path: "/ws"}
+	h := http.Header{}
+	h.Set("Device-Id", "test-device-orch")
+	h.Set("Authorization", "Bearer test-token")
+	h.Set("Protocol-Version", "1")
+
+	conn, _, err := websocket.DefaultDialer.Dial(u.String(), h)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// 1) hello
+	hello := map[string]interface{}{
+		"type":      "hello",
+		"version":   1,
+		"transport": "websocket",
+		"features":  map[string]bool{"MCP": true, "AEC": true},
+		"audio_params": map[string]interface{}{
+			"format":         "opus",
+			"sample_rate":    16000,
+			"channels":       1,
+			"frame_duration": 60,
+		},
+	}
+	require.NoError(t, conn.WriteJSON(hello))
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var helloResp map[string]interface{}
+	require.NoError(t, conn.ReadJSON(&helloResp))
+	assert.Equal(t, "hello", helloResp["type"])
+
+	// 2) listen-start
+	require.NoError(t, conn.WriteJSON(map[string]interface{}{"type": "listen", "state": "start"}))
+
+	// 3) 模拟 60ms opus 帧（960 samples @ 16kHz）。用真 opus encoder 编码静音。
+	opusEncoder, err := opus.NewEncoder(16000, 1)
+	require.NoError(t, err)
+	silencePCM := make([]int16, 960)
+	opusFrame, err := opusEncoder.Encode(silencePCM, 960)
+	require.NoError(t, err)
+	require.NoError(t, conn.WriteMessage(websocket.BinaryMessage, opusFrame))
+
+	// 4) listen-stop（关键触发器）
+	require.NoError(t, conn.WriteJSON(map[string]interface{}{"type": "listen", "state": "stop"}))
+
+	// 5) 期望收到 TTS start + 二进制 opus（sentence-start） + TTS stop
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	var ttsStart map[string]interface{}
+	require.NoError(t, conn.ReadJSON(&ttsStart))
+	assert.Equal(t, "tts", ttsStart["type"])
+	assert.Equal(t, "start", ttsStart["state"])
+
+	// 至少一个 sentence-start JSON + 一个 binary frame
+	sawSentenceOrBinary := false
+	for i := 0; i < 5; i++ {
+		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		msgType, data, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+		if msgType == websocket.BinaryMessage {
+			// TTS 音频帧（mock aisaas 返回的占位 string 转换后的二进制）
+			assert.True(t, len(data) > 0, "binary TTS frame must not be empty")
+			sawSentenceOrBinary = true
+			break
+		}
+		var m map[string]interface{}
+		_ = json.Unmarshal(data, &m)
+		if m["type"] == "tts" && m["state"] == "sentence_start" {
+			sawSentenceOrBinary = true
+		}
+		if m["type"] == "tts" && m["state"] == "stop" {
+			break
+		}
+	}
+	assert.True(t, sawSentenceOrBinary, "expected at least one TTS sentence_start or binary frame")
 }

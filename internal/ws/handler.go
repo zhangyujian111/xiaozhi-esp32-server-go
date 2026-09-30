@@ -11,18 +11,21 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/aisaas"
+	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/dialogue"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/event"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/protocol"
 )
 
 type Handler struct {
-	upgrader  websocket.Upgrader
-	sm        *SessionManager
-	aisaas    aisaas.Authenticator
-	log       zerolog.Logger
-	pipeline  *AudioPipeline
-	interrupt InterruptControllerRef
-	eventBus  event.EventBusInterface
+	upgrader   websocket.Upgrader
+	sm         *SessionManager
+	aisaas     aisaas.Authenticator
+	deviceInfo *aisaas.Client
+	log        zerolog.Logger
+	pipeline   *AudioPipeline
+	interrupt  InterruptControllerRef
+	eventBus   event.EventBusInterface
+	orchestrator dialogue.OrchestratorRunner
 }
 
 type InterruptControllerRef interface {
@@ -40,6 +43,16 @@ func (h *Handler) SetInterruptController(ic InterruptControllerRef) {
 
 func (h *Handler) SetEventBus(bus event.EventBusInterface) {
 	h.eventBus = bus
+}
+
+// SetOrchestrator installs the dialogue runner. handler.invoke(orchestrator.Run) on listen-stop.
+func (h *Handler) SetOrchestrator(o dialogue.OrchestratorRunner) {
+	h.orchestrator = o
+}
+
+// SetDeviceClient installs the full aisaas client (we need GetDevice, not just VerifyDeviceToken).
+func (h *Handler) SetDeviceClient(c *aisaas.Client) {
+	h.deviceInfo = c
 }
 
 func NewHandler(sm *SessionManager, ac aisaas.Authenticator, log zerolog.Logger) *Handler {
@@ -84,6 +97,18 @@ func (h *Handler) HandleUpgrade(w http.ResponseWriter, r *http.Request) {
 		h.log.Error().Err(err).Msg("session register failed")
 		conn.Close()
 		return
+	}
+
+	// 拉取设备详情（含 tenantId，供 persona 路由 / 模型 / TTS 配置使用）。
+	// 失败不致命：orchestrator 会 fallback 到 persona 默认模型。
+	if h.deviceInfo != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		if dev, derr := h.deviceInfo.GetDevice(ctx, deviceID); derr == nil {
+			session.device = dev
+		} else {
+			h.log.Warn().Err(derr).Str("device", deviceID).Msg("get device info failed; orchestrator will fall back")
+		}
 	}
 
 	go h.serveConn(conn, session)
@@ -182,9 +207,36 @@ func (h *Handler) handleListen(conn *websocket.Conn, session *ChatSession, raw [
 		}
 		session.TransitionTo(StateListening)
 	case protocol.ListenStateStop:
+		// 触发 orchestrator：drain 本轮 audio → STT → Chat → TTS → write back
+		if err := h.invokeOrchestrator(conn, session); err != nil {
+			h.log.Error().Err(err).Str("device", session.DeviceID()).Msg("orchestrator run failed")
+		}
 		session.TransitionTo(StateIdle)
 	case protocol.ListenStateDetect:
 	}
+}
+
+// invokeOrchestrator 拉取本轮 audio bytes，调用 orchestrator.Run 走完整链路。
+func (h *Handler) invokeOrchestrator(conn *websocket.Conn, session *ChatSession) error {
+	if h.orchestrator == nil {
+		return nil
+	}
+	device := session.Device()
+	if device == nil {
+		// 没 device 详情仍可跑：orchestrator 会用 fallback 模型。
+		device = &aisaas.DeviceInfo{DeviceID: session.DeviceID()}
+	}
+	audioBytes := session.AudioBuffer().Drain()
+	if len(audioBytes) == 0 {
+		return nil
+	}
+	session.TransitionTo(StateThinking)
+	defer func() { session.TransitionTo(StateIdle) }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	return h.orchestrator.Run(ctx, session.ID(), conn, device, audioBytes)
 }
 
 func (h *Handler) handleAbort(session *ChatSession, raw []byte) {

@@ -20,6 +20,7 @@ import (
 	api "github.com/xiaozhi/xiaozhi-esp32-server-go/internal/api"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/audio/opus"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/config"
+	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/dialogue"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/event"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/obs"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/store"
@@ -67,6 +68,12 @@ func NewApp(cfg *config.Config) (*App, error) {
 	sessionManager := ws.NewSessionManager()
 	wsHandler := ws.NewHandler(sessionManager, aisaasClient, logger)
 	wsHandler.SetEventBus(eventBus)
+	wsHandler.SetDeviceClient(aisaasClient)
+
+	// Dialogue orchestrator：audio -> STT -> Chat (persona) -> TTS -> 回写
+	sentenceSplitter := dialogue.NewSentenceSplitter()
+	orchestrator := dialogue.NewOrchestrator(aisaasClient, sentenceSplitter, memory, opusDecoder, opusEncoder, logger)
+	wsHandler.SetOrchestrator(orchestrator)
 
 	gin.SetMode(gin.ReleaseMode)
 	adminMux := gin.New()

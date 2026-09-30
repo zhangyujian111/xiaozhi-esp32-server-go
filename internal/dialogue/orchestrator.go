@@ -13,7 +13,6 @@ import (
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/audio/wav"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/protocol"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/store"
-	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/ws"
 )
 
 var ErrNotImplemented = errors.New("not implemented")
@@ -22,6 +21,7 @@ type AisaasClient interface {
 	STT(ctx context.Context, model string, wavData []byte) (*aisaas.STTResult, error)
 	Chat(ctx context.Context, model string, messages []aisaas.ChatMessage) (io.ReadCloser, error)
 	TTS(ctx context.Context, model, text string) (io.ReadCloser, string, error)
+	GetPersonaByDevice(ctx context.Context, deviceID string, tenantID int64) (*aisaas.Persona, error)
 }
 
 type OpusEncoder interface {
@@ -54,15 +54,21 @@ func NewOrchestrator(client AisaasClient, splitter *SentenceSplitter, memory sto
 	}
 }
 
-func (o *Orchestrator) Run(ctx context.Context, session *ws.ChatSession, conn Conn, device *aisaas.DeviceInfo) error {
-	audioData := session.AudioBuffer().Drain()
-	if len(audioData) == 0 {
+// Run orchestrates a single dialogue turn: STT -> Chat (with persona system prompt) -> TTS -> write back to conn.
+//
+// audioBytes is the raw session segment captured between speech-start and speech-end events
+// (the pipeline already buffers + VAD-detects, so we receive the segment directly here).
+// Empty audio is a no-op.
+func (o *Orchestrator) Run(ctx context.Context, sessionID string, conn Conn, device *aisaas.DeviceInfo, audioBytes []byte) error {
+	if len(audioBytes) == 0 {
 		return nil
 	}
 
-	pcm, err := o.opusDec.Decode(audioData)
+	pcm, err := o.opusDec.Decode(audioBytes)
 	if err != nil {
-		return fmt.Errorf("opus decode: %w", err)
+		// 损坏的 opus 帧不应让整个对话链路崩溃：仅记录 + 跳过 STT。
+		o.log.Warn().Err(err).Int("bytes", len(audioBytes)).Msg("opus decode failed; skipping turn")
+		return nil
 	}
 
 	pcmBytes := int16ToBytes(pcm)
@@ -72,18 +78,38 @@ func (o *Orchestrator) Run(ctx context.Context, session *ws.ChatSession, conn Co
 	if err != nil {
 		return fmt.Errorf("stt: %w", err)
 	}
+	if sttResult.Text == "" {
+		return nil
+	}
 
-	model := fmt.Sprintf("llm-%d", device.LLMConfigID)
+	var messages []aisaas.ChatMessage
+	// 1) 注入 persona 的 system prompt（设备绑定的角色）。失败回退为空（demo-chat 自带默认）。
+	persona, err := o.aisaas.GetPersonaByDevice(ctx, device.DeviceID, device.UserID)
+	if err == nil && persona != nil && persona.SystemPrompt != "" {
+		messages = append(messages, aisaas.ChatMessage{Role: "system", Content: persona.SystemPrompt})
+	} else if err != nil && !errors.Is(err, aisaas.ErrPersonaNotBound) {
+		o.log.Warn().Err(err).Str("device_id", device.DeviceID).Msg("get persona by device failed; continuing without system prompt")
+	}
+	// 2) 历史消息
 	memoryMsgs, err := o.memory.GetWindow(ctx, device.DeviceID, 20)
 	if err != nil {
 		return fmt.Errorf("get window: %w", err)
 	}
-
-	var messages []aisaas.ChatMessage
 	for _, m := range memoryMsgs {
 		messages = append(messages, aisaas.ChatMessage{Role: m.Role, Content: m.Content})
 	}
+	// 3) 用户本轮
 	messages = append(messages, aisaas.ChatMessage{Role: "user", Content: sttResult.Text})
+
+	// 模型：优先 persona.DefaultModelID（实际 model code），回退到 LLMConfigID。
+	model := ""
+	if persona != nil && persona.DefaultModelID != "" {
+		model = persona.DefaultModelID
+	} else if device.LLMConfigID > 0 {
+		model = fmt.Sprintf("llm-%d", device.LLMConfigID)
+	} else {
+		model = "demo-chat"
+	}
 
 	stream, err := o.aisaas.Chat(ctx, model, messages)
 	if err != nil {
@@ -123,7 +149,7 @@ func (o *Orchestrator) Run(ctx context.Context, session *ws.ChatSession, conn Co
 		return err
 	}
 
-	if err := o.memory.SaveTurn(ctx, device.DeviceID, session.ID(), sttResult.Text, fullResponse.String()); err != nil {
+	if err := o.memory.SaveTurn(ctx, device.DeviceID, sessionID, sttResult.Text, fullResponse.String()); err != nil {
 		o.log.Error().Err(err).Msg("save turn failed")
 	}
 

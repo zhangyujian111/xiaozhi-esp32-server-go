@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/aisaas"
 )
 
 type SessionState string
@@ -26,6 +28,7 @@ type ChatSession struct {
 	mu           sync.RWMutex
 	id           string
 	deviceID     string
+	device       *aisaas.DeviceInfo // populated at HandleUpgrade via aisaas.GetDevice
 	state        SessionState
 	createdAt    time.Time
 	lastActiveAt time.Time
@@ -46,6 +49,20 @@ func NewChatSession(deviceID, sessionID string) *ChatSession {
 
 func (s *ChatSession) ID() string       { return s.id }
 func (s *ChatSession) DeviceID() string { return s.deviceID }
+
+// Device returns the aisaas device info for this session (may be nil if GetDevice failed at upgrade).
+func (s *ChatSession) Device() *aisaas.DeviceInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.device
+}
+
+// SetDevice stores the device info (called by Handler.HandleUpgrade after aisaas.GetDevice).
+func (s *ChatSession) SetDevice(d *aisaas.DeviceInfo) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.device = d
+}
 
 func (s *ChatSession) State() SessionState {
 	s.mu.RLock()
