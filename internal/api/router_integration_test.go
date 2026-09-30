@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
+	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/aisaas"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/config"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/store"
 )
@@ -227,7 +228,7 @@ func TestDeviceCRUD_DeleteDevice_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
-func TestOTAHandler_AisaasVerifyError_501(t *testing.T) {
+func TestOTAHandler_AisaasGetDeviceError_500(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	ms := &mockOTAStore{devices: make(map[string]*store.Device)}
@@ -237,26 +238,26 @@ func TestOTAHandler_AisaasVerifyError_501(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/device/ota", bytes.NewReader([]byte(`{"current_firmware_version":"1.0.0"}`)))
 	req.Header.Set("Activation-Version", "1")
-	req.Header.Set("Device-Id", "dev1")
+	req.Header.Set("Device-Id", "AA:BB:CC:DD:EE:FF")
 	req.Header.Set("Client-Id", "clientA")
 	req.Header.Set("User-Agent", "ESP32/1.0.0")
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 func TestOTAHandler_InvalidJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	ms := &mockOTAStore{devices: make(map[string]*store.Device)}
-	mc := &mockOTAClient{}
+	mc := &mockOTAClient{getDeviceResp: &aisaas.DeviceInfo{DeviceID: "AA:BB:CC:DD:EE:FF", TenantID: 1, BindCode: "x"}}
 	h := NewOTAHandler(ms, mc, "1.1.0", "wss://example.com/ws")
 	r.POST("/api/device/ota", h.HandleOTA)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/device/ota", nil)
 	req.Header.Set("Activation-Version", "1")
-	req.Header.Set("Device-Id", "dev1")
+	req.Header.Set("Device-Id", "AA:BB:CC:DD:EE:FF")
 	req.Header.Set("Client-Id", "clientA")
 	req.Header.Set("User-Agent", "ESP32/1.0.0")
 	req.Header.Set("Content-Type", "application/json")
