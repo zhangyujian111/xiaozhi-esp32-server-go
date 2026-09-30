@@ -203,7 +203,14 @@ func TestClient_GetPersonaByDevice_Success(t *testing.T) {
 				"temperature": 0.7,
 				"topP": 0.9,
 				"maxTokens": 4096,
-				"memoryType": "none"
+				"memoryType": "none",
+				"persona_bind": {
+					"bindId": "100",
+					"personaId": "2105202601480949760",
+					"deviceId": "device123",
+					"isDefault": true,
+					"boundAt": "2026-10-01T10:00:00Z"
+				}
 			}]
 		}`))
 	}))
@@ -219,6 +226,36 @@ func TestClient_GetPersonaByDevice_Success(t *testing.T) {
 	assert.Equal(t, "hakumi", p.Name)
 	assert.Equal(t, "You are Hakumi.", p.SystemPrompt)
 	assert.Equal(t, int64(1001), p.TenantID)
+	require.NotNil(t, p.PersonaBind)
+	assert.Equal(t, int64(100), p.PersonaBind.BindID)
+	assert.Equal(t, "device123", p.PersonaBind.DeviceID)
+	assert.True(t, p.PersonaBind.IsDefault)
+}
+
+func TestClient_GetPersonaByDevice_PersonaExists_NotBoundToDevice(t *testing.T) {
+	// aisaas 行为：persona 存在但未绑到设备 → persona_bind 为 null
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{
+			"code": 0,
+			"data": [{
+				"id": "2105202601480949760",
+				"code": "hakumi02",
+				"name": "hakumi",
+				"tenantId": "1001",
+				"persona_bind": null
+			}]
+		}`))
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "test-token")
+	p, err := client.GetPersonaByDevice(context.Background(), "device123", 1001)
+
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	assert.Nil(t, p.PersonaBind, "未绑设备时 PersonaBind 应为 nil")
 }
 
 func TestClient_GetPersonaByDevice_NotBound(t *testing.T) {

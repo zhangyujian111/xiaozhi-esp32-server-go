@@ -42,7 +42,20 @@ type DeviceInfo struct {
 	TenantID int64  `json:"tenantId"`
 }
 
+// PersonaBind 对齐 aisaas PersonaBindResp（设备↔人设绑定记录）。
+// nil 表示该 persona 未绑定到指定设备。
+type PersonaBind struct {
+	BindID    int64  `json:"bindId,string"`
+	PersonaID int64  `json:"personaId,string"`
+	DeviceID  string `json:"deviceId"`
+	IsDefault bool   `json:"isDefault"`
+	BoundAt   string `json:"boundAt"`
+}
+
 // Persona 对齐 aisaas PersonaResp（按字段子集：orchestrator 仅用 system prompt + 元数据）。
+//
+// PR-4 增量：PersonaBind 字段携带设备↔人设绑定记录。
+// OTA handler 用 `Persona.PersonaBind != nil` 判定"设备是否绑了 persona"。
 type Persona struct {
 	ID         int64  `json:"id,string"`
 	Code       string `json:"code"`
@@ -55,6 +68,7 @@ type Persona struct {
 	TopP           float64 `json:"topP"`
 	MaxTokens      int     `json:"maxTokens"`
 	MemoryType     string  `json:"memoryType"`
+	PersonaBind    *PersonaBind `json:"persona_bind,omitempty"`
 }
 
 func (c *Client) GetDevice(ctx context.Context, deviceID string) (*DeviceInfo, error) {
