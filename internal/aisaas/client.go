@@ -37,20 +37,29 @@ type DeviceInfo struct {
 }
 
 func (c *Client) GetDevice(ctx context.Context, deviceID string) (*DeviceInfo, error) {
-	var info DeviceInfo
+	var bindResp struct {
+		DeviceID string `json:"deviceId"`
+		TenantID int64  `json:"tenantId"`
+		BindCode string `json:"bindCode"`
+	}
 	resp, err := c.http.R().
 		SetContext(ctx).
 		SetHeader("X-Device-Id", deviceID).
-		SetResult(&info).
-		Get(c.baseURL + "/internal/api/v1/devices/" + deviceID)
+		SetResult(&bindResp).
+		Get(c.baseURL + "/internal/api/v1/devices/" + deviceID + "/bind-code")
 	if err != nil {
 		return nil, err
+	}
+	if resp.StatusCode() == http.StatusNotFound {
+		return nil, ErrDeviceNotRegistered
 	}
 	if resp.StatusCode() != http.StatusOK {
 		return nil, fmt.Errorf("get device failed: status=%d body=%s", resp.StatusCode(), resp.String())
 	}
-	return &info, nil
+	return &DeviceInfo{DeviceID: bindResp.DeviceID, UserID: bindResp.TenantID}, nil
 }
+
+var ErrDeviceNotRegistered = fmt.Errorf("device not registered with aisaas")
 
 func (c *Client) VerifyDeviceToken(ctx context.Context, deviceID, token string) error {
 	if token == "" {
