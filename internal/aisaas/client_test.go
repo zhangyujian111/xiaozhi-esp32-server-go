@@ -11,6 +11,50 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestClient_RegisterDevice_Success(t *testing.T) {
+	var capturedBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "/internal/api/v1/devices/device456/register", r.URL.Path)
+		assert.NotEmpty(t, r.Header.Get("X-Internal-Token"))
+
+		body := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(body)
+		capturedBody = string(body)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"deviceId":"device456","tenantId":42,"apiKey":"sk-test","keyId":99}`))
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "test-token")
+	resp, err := client.RegisterDevice(context.Background(), "device456", "AA:BB:CC:DD:EE:FF", "esp32", "1.0.0")
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, "device456", resp.DeviceID)
+	assert.Equal(t, int64(42), resp.TenantID)
+	assert.Equal(t, "sk-test", resp.APIKey)
+	assert.Contains(t, capturedBody, "AA:BB:CC:DD:EE:FF")
+	assert.Contains(t, capturedBody, "esp32")
+	assert.Contains(t, capturedBody, "1.0.0")
+}
+
+func TestClient_RegisterDevice_ServerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("oops"))
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "test-token")
+	_, err := client.RegisterDevice(context.Background(), "device456", "AA:BB:CC:DD:EE:FF", "esp32", "1.0.0")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "status=500")
+}
+
 func TestClient_GetDevice_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/internal/api/v1/devices/device123/bind-code", r.URL.Path)

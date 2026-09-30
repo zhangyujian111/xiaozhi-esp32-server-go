@@ -87,6 +87,45 @@ func (c *Client) GetDevice(ctx context.Context, deviceID string) (*DeviceInfo, e
 
 var ErrDeviceNotRegistered = fmt.Errorf("device not registered with aisaas")
 
+// RegisterDeviceResp 对齐 aisaas RegisterDeviceResp（设备注册响应）。
+type RegisterDeviceResp struct {
+	DeviceID string `json:"deviceId"`
+	TenantID int64  `json:"tenantId"`
+	APIKey   string `json:"apiKey"`
+	KeyID    int64  `json:"keyId"`
+}
+
+// RegisterDevice POST /internal/api/v1/devices/{deviceId}/register
+//
+// 设备首次连接 OTA 时调用此端点：
+//  1. aisaas 创建（或幂等获取）设备租户
+//  2. 为该租户签发一个专属 API Key
+//  3. 返回明文 Key（xz 加密保存到本地 keystore —— 本 PR 不持久化）
+//
+// 对齐 xiaozhi-java DeviceAppService.handleOta 的"设备未开户 → 调注册"分支。
+func (c *Client) RegisterDevice(ctx context.Context, deviceID, mac, chipType, firmwareVersion string) (*RegisterDeviceResp, error) {
+	body := map[string]interface{}{
+		"hwInfo": map[string]string{
+			"mac":             mac,
+			"chipType":        chipType,
+			"firmwareVersion": firmwareVersion,
+		},
+	}
+	resp, err := c.http.R().
+		SetContext(ctx).
+		SetHeader("X-Device-Id", deviceID).
+		SetBody(body).
+		SetResult(&RegisterDeviceResp{}).
+		Post(c.baseURL + "/internal/api/v1/devices/" + deviceID + "/register")
+	if err != nil {
+		return nil, fmt.Errorf("register device: %w", err)
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("register device failed: status=%d body=%s", resp.StatusCode(), resp.String())
+	}
+	return resp.Result().(*RegisterDeviceResp), nil
+}
+
 // ErrPersonaNotBound 设备未绑定 persona；orchestrator 应回退到默认 prompt，不应让用户感知错误。
 var ErrPersonaNotBound = fmt.Errorf("device has no persona bound")
 
