@@ -63,11 +63,8 @@ func TestClient_GetDevice_Success(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"deviceId": "device123",
-			"tenantId": int64(1),
-			"bindCode": "abc123",
-		})
+		// 模拟 aisaas 真实响应：{"code":0,"data":{"bindCode":"...","deviceId":"...","tenantId":N}}
+		w.Write([]byte(`{"code":0,"data":{"deviceId":"device123","tenantId":1,"bindCode":"abc123"}}`))
 	}))
 	defer srv.Close()
 
@@ -124,10 +121,7 @@ func TestVerifyDeviceToken_NonEmpty(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"deviceId": "device123",
-			"userId":   int64(1),
-		})
+		w.Write([]byte(`{"code":0,"data":{"deviceId":"device123","tenantId":1,"bindCode":"x"}}`))
 	}))
 	defer srv.Close()
 
@@ -141,10 +135,7 @@ func TestVerifyDeviceToken_Empty(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"deviceId": "device123",
-			"userId":   int64(1),
-		})
+		w.Write([]byte(`{"code":0,"data":{"deviceId":"device123","tenantId":1,"bindCode":"x"}}`))
 	}))
 	defer srv.Close()
 

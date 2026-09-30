@@ -75,14 +75,16 @@ func startSmokeApp(t *testing.T) (*smokeEnv, string, string) {
 			deviceID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/internal/api/v1/devices/"), "/bind-code")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"deviceId":"` + deviceID + `","tenantId":1001,"bindCode":"abc123"}`))
+			// PR-4：aisaas 真实响应包装 data
+			w.Write([]byte(`{"code":0,"data":{"deviceId":"` + deviceID + `","tenantId":1001,"bindCode":"abc123"}}`))
 			return
 		}
 		if r.URL.Path == "/internal/api/v1/personas/by-device" {
-			// 烟测场景：设备未绑定 persona（404），orchestrator 必须继续（无 system prompt）。
+			// PR-4 烟测：模拟"已绑 persona"（让 OTA 返回 websocket URL）
+			deviceID := r.URL.Query().Get("deviceId")
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			w.Write([]byte(`{"code":40404,"message":"设备未绑定 Persona"}`))
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"code":0,"data":[{"id":"2105202601480949760","code":"smoke","name":"smoke","tenantId":"1001","systemPrompt":"You are smoke.","defaultModelId":"demo-chat","persona_bind":{"bindId":"1","personaId":"2105202601480949760","deviceId":"` + deviceID + `","isDefault":true,"boundAt":"2026-10-01T00:00:00Z"}}]}`))
 			return
 		}
 		if r.URL.Path == "/v1/audio/transcriptions" {
@@ -236,7 +238,7 @@ func TestSmoke_OTA_Success(t *testing.T) {
 	req, err := http.NewRequest("POST", "http://"+adminAddr+"/api/device/ota", strings.NewReader(`{"current_firmware_version":"1.0.0"}`))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Device-Id", "test-device-001")
+	req.Header.Set("Device-Id", "AA:BB:CC:DD:EE:F0")
 	req.Header.Set("Client-Id", "test-client")
 	req.Header.Set("Activation-Version", "1")
 	req.Header.Set("User-Agent", "ESP32/1.0.0")
@@ -328,7 +330,7 @@ func TestSmoke_WebSocket_ListenStart(t *testing.T) {
 
 	u := url.URL{Scheme: "ws", Host: wsAddr, Path: "/ws"}
 	h := http.Header{}
-	h.Set("Device-Id", "test-device-001")
+	h.Set("Device-Id", "AA:BB:CC:DD:EE:F0")
 	h.Set("Authorization", "Bearer test-token")
 	h.Set("Protocol-Version", "1")
 
@@ -371,7 +373,7 @@ func TestSmoke_WebSocket_ListenStop_TriggersOrchestrator(t *testing.T) {
 
 	u := url.URL{Scheme: "ws", Host: wsAddr, Path: "/ws"}
 	h := http.Header{}
-	h.Set("Device-Id", "test-device-orch")
+	h.Set("Device-Id", "AA:BB:CC:DD:EE:F1")
 	h.Set("Authorization", "Bearer test-token")
 	h.Set("Protocol-Version", "1")
 

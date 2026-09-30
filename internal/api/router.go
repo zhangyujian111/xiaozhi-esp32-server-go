@@ -40,6 +40,10 @@ func SetupAPIRouter(cfg *config.Config, ds store.DeviceStore) *gin.Engine {
 	otaHandler := NewOTAHandler(ds, aisaasClient, latestFW, publicWSURL)
 	r.POST("/api/device/ota", otaHandler.HandleOTA)
 
+	// PR-4：设备轮询"我激活了吗"端点（对齐 xiaozhi-java DeviceController.otaActivate）
+	activateHandler := NewOTAActivateHandler(aisaasClient)
+	r.GET("/api/device/ota/activate", activateHandler.HandleActivate)
+
 	return r
 }
 

@@ -72,15 +72,16 @@ type Persona struct {
 }
 
 func (c *Client) GetDevice(ctx context.Context, deviceID string) (*DeviceInfo, error) {
-	var bindResp struct {
-		DeviceID string `json:"deviceId"`
-		TenantID int64  `json:"tenantId"`
-		BindCode string `json:"bindCode"`
+	// aisaas 响应包装：{"code":0,"data":{"bindCode":"...","deviceId":"...","tenantId":N}}
+	// resty SetResult 不会自动拆 data，需要手动两段解析
+	var outer struct {
+		Code int             `json:"code"`
+		Data json.RawMessage `json:"data"`
 	}
 	resp, err := c.http.R().
 		SetContext(ctx).
 		SetHeader("X-Device-Id", deviceID).
-		SetResult(&bindResp).
+		SetResult(&outer).
 		Get(c.baseURL + "/internal/api/v1/devices/" + deviceID + "/bind-code")
 	if err != nil {
 		return nil, err
@@ -90,6 +91,14 @@ func (c *Client) GetDevice(ctx context.Context, deviceID string) (*DeviceInfo, e
 	}
 	if resp.StatusCode() != http.StatusOK {
 		return nil, fmt.Errorf("get device failed: status=%d body=%s", resp.StatusCode(), resp.String())
+	}
+	var bindResp struct {
+		DeviceID string `json:"deviceId"`
+		TenantID int64  `json:"tenantId"`
+		BindCode string `json:"bindCode"`
+	}
+	if err := json.Unmarshal(outer.Data, &bindResp); err != nil {
+		return nil, fmt.Errorf("parse device bind data: %w", err)
 	}
 	return &DeviceInfo{
 		DeviceID: bindResp.DeviceID,

@@ -88,9 +88,17 @@ func NewApp(cfg *config.Config) (*App, error) {
 	adminMux.GET("/metrics", metricsAuth(cfg.Server.InternalToken), gin.WrapH(promhttp.Handler()))
 
 	latestFW := "1.1.0"
-	publicWSURL := "wss://" + cfg.Server.WebsocketAddr
+	publicWSURL := cfg.Server.PublicWSURL
+	if publicWSURL == "" {
+		publicWSURL = "wss://" + cfg.Server.WebsocketAddr
+		logger.Warn().Msgf("server.public_ws_url not set, fallback to %q (may be invalid for hardware)", publicWSURL)
+	}
 	otaHandler := api.NewOTAHandler(deviceStore, aisaasClient, latestFW, publicWSURL)
 	adminMux.POST("/api/device/ota", otaHandler.HandleOTA)
+
+	// PR-4：设备轮询"我激活了吗"端点（对齐 xiaozhi-java DeviceController.otaActivate）
+	activateHandler := api.NewOTAActivateHandler(aisaasClient)
+	adminMux.GET("/api/device/ota/activate", activateHandler.HandleActivate)
 
 	dh := api.NewDeviceHandler(deviceStore)
 	internal := adminMux.Group("/api/internal/v1")
