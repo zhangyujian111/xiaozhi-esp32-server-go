@@ -22,6 +22,7 @@ type Config struct {
 type ServerConfig struct {
 	WebsocketAddr string `mapstructure:"websocket_addr"`
 	AdminAddr     string `mapstructure:"admin_addr"`
+	PublicWSURL   string `mapstructure:"public_ws_url"` // OTA 返回给硬件的对外地址（覆盖自动拼接）
 	ReadTimeout   string `mapstructure:"read_timeout"`
 	WriteTimeout  string `mapstructure:"write_timeout"`
 	MaxConns      int    `mapstructure:"max_connections"`

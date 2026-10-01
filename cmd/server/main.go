@@ -13,9 +13,10 @@ import (
 )
 
 func main() {
+	configPath := flag.String("config", "./configs/config.yaml", "path to config file")
 	flag.Parse()
 
-	cfg, err := config.Load("./configs/config.yaml")
+	cfg, err := config.Load(*configPath)
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
 	}
