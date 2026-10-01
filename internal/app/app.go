@@ -19,6 +19,7 @@ import (
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/aisaas"
 	api "github.com/xiaozhi/xiaozhi-esp32-server-go/internal/api"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/audio/opus"
+	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/audio/vad"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/config"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/dialogue"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/event"
@@ -69,6 +70,31 @@ func NewApp(cfg *config.Config) (*App, error) {
 	wsHandler := ws.NewHandler(sessionManager, aisaasClient, logger)
 	wsHandler.SetEventBus(eventBus)
 	wsHandler.SetDeviceClient(aisaasClient)
+	wsHandler.SetOpusDecoder(opusDecoder)
+
+	// Server-side VAD (Silero). When the model file is present and the binary
+	// was built with `-tags silero`, every opus frame is decoded and pushed
+	// through the pipeline. SpeechStart aborts any in-flight TTS; SpeechEnd
+	// triggers the orchestrator (drains the audio buffer + runs STT→Chat→TTS).
+	// Without the silero build tag or with a missing model, the handler still
+	// buffers audio as before; the listen-stop path is the fallback.
+	var audioPipeline *ws.AudioPipeline
+	if cfg.VAD.ModelPath != "" {
+		silero, vErr := vad.NewSileroVAD(cfg.VAD.ModelPath)
+		if vErr != nil {
+			logger.Warn().Err(vErr).Str("model_path", cfg.VAD.ModelPath).Msg("silero VAD unavailable; falling back to listen-stop only")
+		} else {
+			audioPipeline = ws.NewAudioPipeline(
+				sessionManager,
+				silero,
+				cfg.VAD.SpeechThreshold,
+				cfg.VAD.SilenceThreshold,
+				cfg.VAD.SilenceDurationMs,
+			)
+			wsHandler.SetPipeline(audioPipeline)
+			logger.Info().Str("model_path", cfg.VAD.ModelPath).Msg("silero VAD pipeline wired")
+		}
+	}
 
 	// Dialogue orchestrator：audio -> STT -> Chat (persona) -> TTS -> 回写
 	sentenceSplitter := dialogue.NewSentenceSplitter()

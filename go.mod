@@ -14,6 +14,7 @@ require (
 	github.com/rs/zerolog v1.35.1
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.12.1
+	github.com/yalue/onnxruntime_go v1.36.0
 	golang.org/x/sync v0.22.0
 )
 

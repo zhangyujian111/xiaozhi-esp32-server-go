@@ -6,26 +6,31 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/aisaas"
+	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/audio/opus"
+	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/audio/vad"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/dialogue"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/event"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/protocol"
 )
 
 type Handler struct {
-	upgrader   websocket.Upgrader
-	sm         *SessionManager
-	aisaas     aisaas.Authenticator
-	deviceInfo *aisaas.Client
-	log        zerolog.Logger
-	pipeline   *AudioPipeline
-	interrupt  InterruptControllerRef
-	eventBus   event.EventBusInterface
-	orchestrator dialogue.OrchestratorRunner
+	upgrader      websocket.Upgrader
+	sm            *SessionManager
+	aisaas        aisaas.Authenticator
+	deviceInfo    *aisaas.Client
+	log           zerolog.Logger
+	pipeline      *AudioPipeline
+	opusDecoder   *opus.Decoder
+	interrupt     InterruptControllerRef
+	eventBus      event.EventBusInterface
+	orchestrator  dialogue.OrchestratorRunner
+	pcmAccum      sync.Map // sessionID → *pcmAccumulator (decoded PCM waiting for 512-sample VAD frames)
 }
 
 type InterruptControllerRef interface {
@@ -53,6 +58,14 @@ func (h *Handler) SetOrchestrator(o dialogue.OrchestratorRunner) {
 // SetDeviceClient installs the full aisaas client (we need GetDevice, not just VerifyDeviceToken).
 func (h *Handler) SetDeviceClient(c *aisaas.Client) {
 	h.deviceInfo = c
+}
+
+// SetOpusDecoder installs the uplink opus decoder. When set, the handler
+// will decode each binary frame into int16 PCM and feed it to the VAD
+// pipeline (chunks of 512 samples). When unset, the handler falls back to
+// the original raw-frame buffering behavior (used by smoke tests).
+func (h *Handler) SetOpusDecoder(d *opus.Decoder) {
+	h.opusDecoder = d
 }
 
 func NewHandler(sm *SessionManager, ac aisaas.Authenticator, log zerolog.Logger) *Handler {
@@ -140,6 +153,12 @@ func (h *Handler) serveConn(conn *websocket.Conn, session *ChatSession) {
 		h.eventBus.Publish(event.NewDeviceConnectedEvent(session.DeviceID(), session.ID()))
 	}
 
+	// Pump VAD events: when the pipeline emits SpeechEnd for THIS session,
+	// trigger the orchestrator. Other sessions' events are ignored.
+	if h.pipeline != nil {
+		go h.pumpVADEvents(conn, session)
+	}
+
 	for {
 		msgType, data, err := conn.ReadMessage()
 		if err != nil {
@@ -151,6 +170,12 @@ func (h *Handler) serveConn(conn *websocket.Conn, session *ChatSession) {
 		if msgType == websocket.BinaryMessage {
 			session.AudioBuffer().Write(data)
 			h.log.Debug().Str("device", session.DeviceID()).Int("bytes", len(data)).Int("total", session.AudioBuffer().Len()).Msg("audio frame received")
+			// Feed decoded PCM to VAD pipeline (server-side speech end detection)
+			if h.pipeline != nil && h.opusDecoder != nil {
+				if err := h.feedVADPipeline(session, data); err != nil {
+					h.log.Debug().Err(err).Str("device", session.DeviceID()).Msg("vad feed failed (frame dropped)")
+				}
+			}
 			continue
 		}
 
@@ -264,4 +289,86 @@ func (h *Handler) handleAck(session *ChatSession, raw []byte) {
 		return
 	}
 	h.log.Debug().Str("msgType", msg.MsgType).Str("status", msg.Status).Msg("ack received")
+}
+
+// pcmAccumulator holds decoded PCM samples waiting to be fed to the VAD
+// pipeline in 512-sample chunks. Each handler connection owns one.
+type pcmAccumulator struct {
+	mu    sync.Mutex
+	queue []int16
+}
+
+func (a *pcmAccumulator) push(samples []int16) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.queue = append(a.queue, samples...)
+}
+
+func (a *pcmAccumulator) take(n int) []int16 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.queue) < n {
+		return nil
+	}
+	out := make([]int16, n)
+	copy(out, a.queue[:n])
+	a.queue = a.queue[n:]
+	return out
+}
+
+func (a *pcmAccumulator) discard() {
+	a.mu.Lock()
+	a.queue = nil
+	a.mu.Unlock()
+}
+
+// feedVADPipeline decodes one opus frame into PCM and pushes it to the
+// per-session accumulator. While the accumulator holds ≥512 samples,
+// they are pulled off in 32 ms chunks and handed to the VAD pipeline.
+// The pipeline's internal state machine emits SpeechStart/SpeechEnd
+// events which the handler consumes in pumpVADEvents.
+func (h *Handler) feedVADPipeline(session *ChatSession, opusFrame []byte) error {
+	pcm, err := h.opusDecoder.Decode(opusFrame)
+	if err != nil {
+		return err
+	}
+	if len(pcm) == 0 {
+		return nil
+	}
+	v, _ := h.pcmAccum.LoadOrStore(session.ID(), &pcmAccumulator{})
+	acc := v.(*pcmAccumulator)
+	acc.push(pcm)
+	for {
+		chunk := acc.take(512)
+		if chunk == nil {
+			break
+		}
+		h.pipeline.Feed(session.ID(), chunk)
+	}
+	return nil
+}
+
+// pumpVADEvents drains the pipeline's event channel for the lifetime of
+// this connection. On SpeechEnd for this session, drain the audio buffer
+// and trigger the orchestrator (mirrors the listen-stop path).
+func (h *Handler) pumpVADEvents(conn *websocket.Conn, session *ChatSession) {
+	events := h.pipeline.Events()
+	for evt := range events {
+		if evt.SessionID != session.ID() {
+			continue
+		}
+		switch evt.Status {
+		case vad.SpeechStart:
+			h.log.Info().Str("device", session.DeviceID()).Str("session", session.ID()).Msg("VAD speech start → trigger interrupt")
+			if h.interrupt != nil {
+				h.interrupt.Trigger()
+			}
+		case vad.SpeechEnd:
+			bufBytes := session.AudioBuffer().Len()
+			h.log.Info().Str("device", session.DeviceID()).Str("session", session.ID()).Int("audio_bytes", bufBytes).Msg("VAD speech end → triggering orchestrator")
+			if err := h.invokeOrchestrator(conn, session); err != nil {
+				h.log.Error().Err(err).Str("device", session.DeviceID()).Msg("vad-triggered orchestrator run failed")
+			}
+		}
+	}
 }
