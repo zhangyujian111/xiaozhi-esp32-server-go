@@ -150,6 +150,7 @@ func (h *Handler) serveConn(conn *websocket.Conn, session *ChatSession) {
 
 		if msgType == websocket.BinaryMessage {
 			session.AudioBuffer().Write(data)
+			h.log.Debug().Str("device", session.DeviceID()).Int("bytes", len(data)).Int("total", session.AudioBuffer().Len()).Msg("audio frame received")
 			continue
 		}
 
@@ -195,10 +196,12 @@ func (h *Handler) handleHello(conn *websocket.Conn, session *ChatSession, raw []
 func (h *Handler) handleListen(conn *websocket.Conn, session *ChatSession, raw []byte) {
 	var msg protocol.ListenMessage
 	if err := json.Unmarshal(raw, &msg); err != nil {
+		h.log.Warn().Err(err).Str("device", session.DeviceID()).Msg("listen parse failed")
 		return
 	}
 	switch msg.State {
 	case protocol.ListenStateStart:
+		h.log.Info().Str("device", session.DeviceID()).Str("session", session.ID()).Msg("listen-start received")
 		if h.interrupt != nil && h.interrupt.Triggered() {
 			return
 		}
@@ -207,12 +210,15 @@ func (h *Handler) handleListen(conn *websocket.Conn, session *ChatSession, raw [
 		}
 		session.TransitionTo(StateListening)
 	case protocol.ListenStateStop:
+		audioBytes := session.AudioBuffer().Len()
+		h.log.Info().Str("device", session.DeviceID()).Str("session", session.ID()).Int("audio_bytes", audioBytes).Msg("listen-stop received → triggering orchestrator")
 		// 触发 orchestrator：drain 本轮 audio → STT → Chat → TTS → write back
 		if err := h.invokeOrchestrator(conn, session); err != nil {
 			h.log.Error().Err(err).Str("device", session.DeviceID()).Msg("orchestrator run failed")
 		}
 		session.TransitionTo(StateIdle)
 	case protocol.ListenStateDetect:
+		h.log.Debug().Str("device", session.DeviceID()).Msg("listen-detect (auto Wake Up)")
 	}
 }
 

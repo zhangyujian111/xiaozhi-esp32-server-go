@@ -60,7 +60,9 @@ func NewOrchestrator(client AisaasClient, splitter *SentenceSplitter, memory sto
 // (the pipeline already buffers + VAD-detects, so we receive the segment directly here).
 // Empty audio is a no-op.
 func (o *Orchestrator) Run(ctx context.Context, sessionID string, conn Conn, device *aisaas.DeviceInfo, audioBytes []byte) error {
+	o.log.Info().Str("session", sessionID).Str("device", device.DeviceID).Int("audio_bytes", len(audioBytes)).Msg("orchestrator run start")
 	if len(audioBytes) == 0 {
+		o.log.Info().Str("session", sessionID).Str("device", device.DeviceID).Msg("orchestrator skip: empty audio")
 		return nil
 	}
 
@@ -70,25 +72,33 @@ func (o *Orchestrator) Run(ctx context.Context, sessionID string, conn Conn, dev
 		o.log.Warn().Err(err).Int("bytes", len(audioBytes)).Msg("opus decode failed; skipping turn")
 		return nil
 	}
+	o.log.Debug().Str("session", sessionID).Int("pcm_samples", len(pcm)).Msg("opus decoded")
 
 	pcmBytes := int16ToBytes(pcm)
 	wavData := wav.PCMToWAV(pcmBytes, 16000, 1, 16)
 
+	o.log.Info().Str("session", sessionID).Str("device", device.DeviceID).Int("wav_bytes", len(wavData)).Msg("calling STT")
 	sttResult, err := o.aisaas.STT(ctx, "stt-default", wavData)
 	if err != nil {
+		o.log.Error().Err(err).Str("session", sessionID).Msg("STT failed")
 		return fmt.Errorf("stt: %w", err)
 	}
 	if sttResult.Text == "" {
+		o.log.Info().Str("session", sessionID).Msg("STT returned empty text; skipping turn")
 		return nil
 	}
+	o.log.Info().Str("session", sessionID).Str("text", sttResult.Text).Msg("STT ok")
 
 	var messages []aisaas.ChatMessage
 	// 1) 注入 persona 的 system prompt（设备绑定的角色）。失败回退为空（demo-chat 自带默认）。
 	persona, err := o.aisaas.GetPersonaByDevice(ctx, device.DeviceID, device.UserID)
 	if err == nil && persona != nil && persona.SystemPrompt != "" {
 		messages = append(messages, aisaas.ChatMessage{Role: "system", Content: persona.SystemPrompt})
+		o.log.Info().Str("session", sessionID).Str("persona", persona.Name).Msg("persona system prompt injected")
 	} else if err != nil && !errors.Is(err, aisaas.ErrPersonaNotBound) {
 		o.log.Warn().Err(err).Str("device_id", device.DeviceID).Msg("get persona by device failed; continuing without system prompt")
+	} else if persona != nil {
+		o.log.Info().Str("session", sessionID).Str("persona", persona.Name).Msg("persona found but empty system prompt")
 	}
 	// 2) 历史消息
 	memoryMsgs, err := o.memory.GetWindow(ctx, device.DeviceID, 20)
@@ -113,14 +123,17 @@ func (o *Orchestrator) Run(ctx context.Context, sessionID string, conn Conn, dev
 
 	stream, err := o.aisaas.Chat(ctx, model, messages)
 	if err != nil {
+		o.log.Error().Err(err).Str("session", sessionID).Str("model", model).Msg("Chat stream call failed")
 		return fmt.Errorf("chat: %w", err)
 	}
 	defer stream.Close()
+	o.log.Info().Str("session", sessionID).Str("model", model).Int("messages", len(messages)).Msg("Chat stream started")
 
 	ttsMsg := protocol.TTSMessage{Type: protocol.TTS, State: protocol.TTSStateStart}
 	if err := conn.WriteJSON(ttsMsg); err != nil {
 		return err
 	}
+	o.log.Info().Str("session", sessionID).Msg("TTS start sent to client")
 
 	var fullResponse strings.Builder
 	onToken := func(token string) error {
@@ -148,10 +161,12 @@ func (o *Orchestrator) Run(ctx context.Context, sessionID string, conn Conn, dev
 	if err := conn.WriteJSON(stopMsg); err != nil {
 		return err
 	}
+	o.log.Info().Str("session", sessionID).Msg("TTS stop sent to client")
 
 	if err := o.memory.SaveTurn(ctx, device.DeviceID, sessionID, sttResult.Text, fullResponse.String()); err != nil {
 		o.log.Error().Err(err).Msg("save turn failed")
 	}
+	o.log.Info().Str("session", sessionID).Str("device", device.DeviceID).Int("response_chars", fullResponse.Len()).Msg("orchestrator run done")
 
 	return nil
 }
@@ -165,9 +180,11 @@ func (o *Orchestrator) synthesizeAndSend(ctx context.Context, conn Conn, sentenc
 	model := fmt.Sprintf("tts-%d", device.TTSConfigID)
 	stream, _, err := o.aisaas.TTS(ctx, model, sentence)
 	if err != nil {
+		o.log.Error().Err(err).Str("model", model).Str("text", sentence).Msg("TTS call failed")
 		return fmt.Errorf("tts: %w", err)
 	}
 	defer stream.Close()
+	o.log.Info().Str("model", model).Str("text", sentence).Msg("TTS returned, encoding to opus")
 
 	audioData, err := io.ReadAll(stream)
 	if err != nil {
