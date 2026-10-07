@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/aisaas"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/config"
@@ -233,7 +234,7 @@ func TestOTAHandler_AisaasGetDeviceError_500(t *testing.T) {
 	r := gin.New()
 	ms := &mockOTAStore{devices: make(map[string]*store.Device)}
 	mc := &mockOTAClient{getDeviceErr: context.DeadlineExceeded}
-	h := NewOTAHandler(ms, mc, "1.1.0", "wss://example.com/ws")
+	h := NewOTAHandler(ms, mc, "1.1.0", "wss://example.com/ws", zerolog.Nop())
 	r.POST("/api/device/ota", h.HandleOTA)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/device/ota", bytes.NewReader([]byte(`{"current_firmware_version":"1.0.0"}`)))
@@ -252,7 +253,7 @@ func TestOTAHandler_InvalidJSON(t *testing.T) {
 	r := gin.New()
 	ms := &mockOTAStore{devices: make(map[string]*store.Device)}
 	mc := &mockOTAClient{getDeviceResp: &aisaas.DeviceInfo{DeviceID: "AA:BB:CC:DD:EE:FF", TenantID: 1, BindCode: "x"}}
-	h := NewOTAHandler(ms, mc, "1.1.0", "wss://example.com/ws")
+	h := NewOTAHandler(ms, mc, "1.1.0", "wss://example.com/ws", zerolog.Nop())
 	r.POST("/api/device/ota", h.HandleOTA)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/device/ota", nil)

@@ -41,3 +41,10 @@ coverage.xml
 
 # Subagent scratch space (not source)
 /.superpowers/
+# Local configs / data
+configs/config.local.yaml
+/data/
+test_run.txt
+
+test/**/data/
+

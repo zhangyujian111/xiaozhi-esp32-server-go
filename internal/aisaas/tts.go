@@ -22,12 +22,13 @@ type TTSChunk struct {
 
 func (c *Client) TTS(ctx context.Context, model, text string) (io.ReadCloser, string, error) {
 	req := TTSRequest{Model: model, Input: text, Stream: true}
-	resp, err := c.http.R().
+	r := c.http.R().
 		SetContext(ctx).
 		SetHeader("Content-Type", "application/json").
 		SetBody(req).
-		SetDoNotParseResponse(true).
-		Post(c.baseURL + "/v1/audio/speech")
+		SetDoNotParseResponse(true)
+	c.applyAPIKey(r)
+	resp, err := r.Post(c.baseURL + "/v1/audio/speech")
 	if err != nil {
 		return nil, "", err
 	}

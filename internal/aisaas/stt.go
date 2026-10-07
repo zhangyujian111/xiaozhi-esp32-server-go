@@ -14,12 +14,13 @@ type STTResult struct {
 
 func (c *Client) STT(ctx context.Context, model string, wavData []byte) (*STTResult, error) {
 	var result STTResult
-	resp, err := c.http.R().
+	r := c.http.R().
 		SetContext(ctx).
 		SetFileReader("file", "audio.wav", bytes.NewReader(wavData)).
 		SetFormData(map[string]string{"model": model}).
-		SetResult(&result).
-		Post(c.baseURL + "/v1/audio/transcriptions")
+		SetResult(&result)
+	c.applyAPIKey(r)
+	resp, err := r.Post(c.baseURL + "/v1/audio/transcriptions")
 	if err != nil {
 		return nil, err
 	}

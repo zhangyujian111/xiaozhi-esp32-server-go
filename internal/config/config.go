@@ -58,6 +58,10 @@ type DialogueConfig struct {
 	PerTurnTimeoutSec    int `mapstructure:"per_turn_timeout"`
 	WindowMemorySize     int `mapstructure:"window_memory_size"`
 	TTFSAlertThresholdMs int `mapstructure:"ttfs_alert_threshold_ms"`
+	// StreamingEnabled controls whether the ws handler prefers the
+	// stream-orchestrator path (aisaas /dialogue/stream SSE) over the legacy
+	// /dialogue/run path. Lower latency when on; safer fallback when off.
+	StreamingEnabled bool `mapstructure:"streaming_enabled"`
 }
 
 type DatabaseConfig struct {

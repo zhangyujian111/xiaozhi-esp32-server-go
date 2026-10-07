@@ -23,12 +23,13 @@ type ChatRequest struct {
 
 func (c *Client) Chat(ctx context.Context, model string, messages []ChatMessage) (io.ReadCloser, error) {
 	req := ChatRequest{Model: model, Messages: messages, Stream: true}
-	resp, err := c.http.R().
+	r := c.http.R().
 		SetContext(ctx).
 		SetHeader("Content-Type", "application/json").
 		SetBody(req).
-		SetDoNotParseResponse(true).
-		Post(c.baseURL + "/v1/chat/completions")
+		SetDoNotParseResponse(true)
+	c.applyAPIKey(r)
+	resp, err := r.Post(c.baseURL + "/v1/chat/completions")
 	if err != nil {
 		return nil, err
 	}

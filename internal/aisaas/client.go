@@ -2,10 +2,12 @@ package aisaas
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -17,6 +19,7 @@ type Client struct {
 	http          *resty.Client
 	baseURL       string
 	internalToken string
+	apiKey        string // 当前请求使用的设备 API Key（Bearer sk-aisaas-...）。由 SetAPIKey / applyAPIKey 注入。
 }
 
 func NewClient(baseURL, internalToken string) *Client {
@@ -24,6 +27,32 @@ func NewClient(baseURL, internalToken string) *Client {
 		SetTimeout(30*time.Second).
 		SetHeader("X-Internal-Token", internalToken)
 	return &Client{http: c, baseURL: baseURL, internalToken: internalToken}
+}
+
+// SetAPIKey 设置当前 Client 默认使用的设备 API Key（Bearer）。
+// 调用 STT/Chat/TTS/GetPersonaByDevice 时会自动附加。
+// 单机单设备场景下使用；多设备并发请使用 CloneAPIKey。
+func (c *Client) SetAPIKey(apiKey string) {
+	c.apiKey = apiKey
+}
+
+// CloneAPIKey 返回一个共享 http client、但持有独立 apiKey 的浅拷贝。
+// 用于多设备并发：每个 session/handler 持有自己的 clone，互不干扰。
+func (c *Client) CloneAPIKey(apiKey string) *Client {
+	return &Client{
+		http:          c.http,
+		baseURL:       c.baseURL,
+		internalToken: c.internalToken,
+		apiKey:        apiKey,
+	}
+}
+
+// applyAPIKey 把当前 Client.apiKey 注入到 resty Request 的 Authorization 头。
+// apiKey 为空时跳过（兼容不需 Bearer 的内部端点）。
+func (c *Client) applyAPIKey(r *resty.Request) {
+	if c.apiKey != "" {
+		r.SetHeader("Authorization", "Bearer "+c.apiKey)
+	}
 }
 
 type DeviceInfo struct {
@@ -40,6 +69,10 @@ type DeviceInfo struct {
 	// TenantID 对应 aisaas 内部租户 ID（设备开户时的租户）
 	BindCode string `json:"bindCode"`
 	TenantID int64  `json:"tenantId"`
+
+	// APIKey 由 ws.handler 在调用 STT/Chat/TTS 前注入，
+	// orchestrator 透传给 aisaas.Client（per-request Bearer header）。
+	APIKey string `json:"apiKey,omitempty"`
 }
 
 // PersonaBind 对齐 aisaas PersonaBindResp（设备↔人设绑定记录）。
@@ -68,7 +101,16 @@ type Persona struct {
 	TopP           float64 `json:"topP"`
 	MaxTokens      int     `json:"maxTokens"`
 	MemoryType     string  `json:"memoryType"`
+	TTSProvider    string `json:"ttsProvider"`
+	TTSVoice       string `json:"ttsVoice"`
+	VoicePreference *VoicePreference `json:"voicePreference,omitempty"`
 	PersonaBind    *PersonaBind `json:"persona_bind,omitempty"`
+}
+
+type VoicePreference struct {
+	Pitch  float64 `json:"pitch"`
+	Speed  float64 `json:"speed"`
+	Voice  string  `json:"voice"`
 }
 
 func (c *Client) GetDevice(ctx context.Context, deviceID string) (*DeviceInfo, error) {
@@ -110,7 +152,25 @@ func (c *Client) GetDevice(ctx context.Context, deviceID string) (*DeviceInfo, e
 
 var ErrDeviceNotRegistered = fmt.Errorf("device not registered with aisaas")
 
-// RegisterDeviceResp 对齐 aisaas RegisterDeviceResp（设备注册响应）。
+// ErrQuotaExceeded dialogue quota exhausted for tenant.
+var ErrQuotaExceeded = fmt.Errorf("dialogue quota exceeded")
+
+// ErrModelNotFound STT/LLM/TTS model not found or not enabled.
+var ErrModelNotFound = fmt.Errorf("model not found or not enabled")
+
+// DialogueResult 对齐 aisaas POST /internal/api/v1/dialogue/run 响应。
+type DialogueResult struct {
+	UserText    string `json:"userText"`
+	ReplyText   string `json:"replyText"`
+	AudioFormat string `json:"audioFormat"` // "opus"
+	SampleRate  int    `json:"sampleRate"`  // 24000
+	Audio       []byte `json:"-"`           // decoded from base64
+}
+// RegisterDeviceResp 对齐 aisaas /devices/{id}/register 响应。
+//
+// 注意：aisaas 当前返回 tenantId/keyId 为 JSON 数字（不是字符串）。
+// 本结构与 Persona/PersonaBind 的 ,string tag 不一致；如未来 aisaas 切换字符串型，
+// 需同步加 ,string tag 并更新 aisaas 服务端。
 type RegisterDeviceResp struct {
 	DeviceID string `json:"deviceId"`
 	TenantID int64  `json:"tenantId"`
@@ -134,23 +194,120 @@ func (c *Client) RegisterDevice(ctx context.Context, deviceID, mac, chipType, fi
 			"firmwareVersion": firmwareVersion,
 		},
 	}
+	// aisaas 响应统一包装：{"code":0,"data":{...}}
+	// resty SetResult 不会自动拆 data，需手动两段解析（与本文件 GetDevice 同模式）。
+	var outer struct {
+		Code int             `json:"code"`
+		Data json.RawMessage `json:"data"`
+	}
 	resp, err := c.http.R().
 		SetContext(ctx).
 		SetHeader("X-Device-Id", deviceID).
 		SetBody(body).
-		SetResult(&RegisterDeviceResp{}).
+		SetResult(&outer).
 		Post(c.baseURL + "/internal/api/v1/devices/" + deviceID + "/register")
 	if err != nil {
 		return nil, fmt.Errorf("register device: %w", err)
 	}
+	if resp.StatusCode() == http.StatusNotFound {
+		return nil, ErrDeviceNotRegistered
+	}
 	if resp.StatusCode() != http.StatusOK {
 		return nil, fmt.Errorf("register device failed: status=%d body=%s", resp.StatusCode(), resp.String())
 	}
-	return resp.Result().(*RegisterDeviceResp), nil
+	if outer.Code != 0 {
+		return nil, fmt.Errorf("register device: code=%d data=%s", outer.Code, string(outer.Data))
+	}
+	var regResp RegisterDeviceResp
+	if err := json.Unmarshal(outer.Data, &regResp); err != nil {
+		return nil, fmt.Errorf("parse register device data: %w", err)
+	}
+	return &regResp, nil
 }
 
 // ErrPersonaNotBound 设备未绑定 persona；orchestrator 应回退到默认 prompt，不应让用户感知错误。
 var ErrPersonaNotBound = fmt.Errorf("device has no persona bound")
+
+// Dialogue POST /internal/api/v1/dialogue/run — single-call full-duplex dialogue
+// that internally handles STT → LLM → TTS using the aisaas model registry.
+// It replaces the old STT/Chat/TTS trio.
+func (c *Client) Dialogue(ctx context.Context, deviceID string, wavBytes []byte) (*DialogueResult, error) {
+	reqBody := map[string]interface{}{
+		"deviceId":    deviceID,
+		"audioFormat": "wav",
+		"sampleRate":  16000,
+		"audioBase64": base64.StdEncoding.EncodeToString(wavBytes),
+	}
+	resp, err := c.http.R().
+		SetContext(ctx).
+		SetHeader("Content-Type", "application/json").
+		SetBody(reqBody).
+		Post(c.baseURL + "/internal/api/v1/dialogue/run")
+	if err != nil {
+		return nil, fmt.Errorf("dialogue request: %w", err)
+	}
+
+	// Handle non-OK status BEFORE attempting JSON parse of body
+	// (aisaas may return plain text on 5xx)
+	switch {
+	case resp.StatusCode() >= 500:
+		return nil, fmt.Errorf("dialogue internal error: status=%d body=%s", resp.StatusCode(), resp.String())
+	case resp.StatusCode() == http.StatusNotFound:
+		// Try to parse JSON for code/message; fall back to status-only check
+		var errResp struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		}
+		if e := json.Unmarshal(resp.Body(), &errResp); e == nil {
+			if errResp.Code == 40404 || strings.Contains(errResp.Message, "device") {
+				return nil, ErrDeviceNotRegistered
+			}
+			return nil, ErrModelNotFound
+		}
+		return nil, ErrDeviceNotRegistered
+	case resp.StatusCode() == http.StatusTooManyRequests:
+		return nil, ErrQuotaExceeded
+	case resp.StatusCode() != http.StatusOK:
+		return nil, fmt.Errorf("dialogue failed: status=%d body=%s", resp.StatusCode(), resp.String())
+	}
+
+	// 2xx — parse success wrapper
+	var wrapper struct {
+		Code    int             `json:"code"`
+		Message string          `json:"message"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(resp.Body(), &wrapper); err != nil {
+		return nil, fmt.Errorf("parse dialogue response: %w", err)
+	}
+	if wrapper.Code != 0 {
+		return nil, fmt.Errorf("dialogue error: code=%d message=%s", wrapper.Code, wrapper.Message)
+	}
+
+	var data struct {
+		UserText    string `json:"userText"`
+		ReplyText   string `json:"replyText"`
+		AudioFormat string `json:"audioFormat"`
+		SampleRate  int    `json:"sampleRate"`
+		AudioBase64 string `json:"audioBase64"`
+	}
+	if err := json.Unmarshal(wrapper.Data, &data); err != nil {
+		return nil, fmt.Errorf("parse dialogue data: %w", err)
+	}
+
+	audioBytes, err := base64.StdEncoding.DecodeString(data.AudioBase64)
+	if err != nil {
+		return nil, fmt.Errorf("decode audio base64: %w", err)
+	}
+
+	return &DialogueResult{
+		UserText:    data.UserText,
+		ReplyText:   data.ReplyText,
+		AudioFormat: data.AudioFormat,
+		SampleRate:  data.SampleRate,
+		Audio:       audioBytes,
+	}, nil
+}
 
 func (c *Client) VerifyDeviceToken(ctx context.Context, deviceID, token string) error {
 	if token == "" {
@@ -167,9 +324,9 @@ func (c *Client) VerifyDeviceToken(ctx context.Context, deviceID, token string) 
 // 这里跳到 data 数组第一个元素再解。
 func (c *Client) GetPersonaByDevice(ctx context.Context, deviceID string, tenantID int64) (*Persona, error) {
 	url := fmt.Sprintf("%s/internal/api/v1/personas/by-device?deviceId=%s&tenantId=%d", c.baseURL, deviceID, tenantID)
-	resp, err := c.http.R().
-		SetContext(ctx).
-		Get(url)
+	r := c.http.R().SetContext(ctx)
+	c.applyAPIKey(r)
+	resp, err := r.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("get persona by device: %w", err)
 	}

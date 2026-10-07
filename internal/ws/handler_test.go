@@ -116,8 +116,8 @@ func TestWebSocketUpgrade_Valid(t *testing.T) {
 		}
 		if resp.AudioParams == nil {
 			t.Error("expected audio_params in hello response")
-		} else if resp.AudioParams.SampleRate != 24000 {
-			t.Errorf("expected sample_rate=24000, got %d", resp.AudioParams.SampleRate)
+		} else if resp.AudioParams.SampleRate != 16000 {
+			t.Errorf("expected sample_rate=16000, got %d", resp.AudioParams.SampleRate)
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("timeout waiting for hello response")
@@ -175,8 +175,8 @@ func TestHandleHello_RoundTrip(t *testing.T) {
 		if resp.AudioParams == nil {
 			t.Fatal("expected audio_params in response")
 		}
-		if resp.AudioParams.SampleRate != 24000 {
-			t.Errorf("expected sample_rate=24000, got %d", resp.AudioParams.SampleRate)
+		if resp.AudioParams.SampleRate != 16000 {
+			t.Errorf("expected sample_rate=16000, got %d", resp.AudioParams.SampleRate)
 		}
 		if resp.AudioParams.Format != "opus" {
 			t.Errorf("expected format=opus, got %s", resp.AudioParams.Format)

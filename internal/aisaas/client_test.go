@@ -24,7 +24,7 @@ func TestClient_RegisterDevice_Success(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"deviceId":"device456","tenantId":42,"apiKey":"sk-test","keyId":99}`))
+		w.Write([]byte(`{"code":0,"message":"success","data":{"deviceId":"device456","tenantId":42,"apiKey":"sk-test","keyId":99}}`))
 	}))
 	defer srv.Close()
 

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/aisaas"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/store"
 )
@@ -24,6 +25,7 @@ type OTAHandler struct {
 	aisaasClient          aisaasFullClient
 	latestFirmwareVersion string
 	publicWSURL           string
+	log                   zerolog.Logger
 }
 
 // aisaasFullClient OTA handler 所需的完整 aisaas 接口（包含注册 + persona 查询）。
@@ -89,12 +91,13 @@ func generateToken() string {
 	return hex.EncodeToString(b)
 }
 
-func NewOTAHandler(ds store.DeviceStore, ac aisaasFullClient, latestFW, wsURL string) *OTAHandler {
+func NewOTAHandler(ds store.DeviceStore, ac aisaasFullClient, latestFW, wsURL string, log zerolog.Logger) *OTAHandler {
 	return &OTAHandler{
 		deviceStore:           ds,
 		aisaasClient:          ac,
 		latestFirmwareVersion: latestFW,
 		publicWSURL:           wsURL,
+		log:                   log,
 	}
 }
 
@@ -122,9 +125,11 @@ func (h *OTAHandler) HandleOTA(c *gin.Context) {
 
 	var req OTARequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		h.log.Warn().Str("device_id", deviceID).Err(err).Msg("OTA bind json failed")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
+	h.log.Info().Str("device_id", deviceID).Str("client_id", clientID).Str("current_fw", req.CurrentFirmwareVersion).Msg("OTA request received")
 
 	ctx := c.Request.Context()
 
@@ -147,10 +152,9 @@ func (h *OTAHandler) HandleOTA(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to re-fetch device after registration: " + errMessage(err)})
 			return
 		}
-		devInfo.TenantID = regResp.TenantID
-	} else if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "aisaas get device failed: " + err.Error()})
-		return
+		if regResp.TenantID > 0 {
+			devInfo.TenantID = regResp.TenantID
+		}
 	}
 
 	// ---- 2. 本地 device 记录 + token ----

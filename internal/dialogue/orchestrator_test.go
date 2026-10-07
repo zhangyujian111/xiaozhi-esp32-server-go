@@ -2,19 +2,22 @@ package dialogue
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
-	"io"
-	"strings"
 	"testing"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/aisaas"
-	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/audio/opus"
+	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/audio/wav"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/protocol"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/store"
 )
+
+func wavFromPCM(pcm []byte, sampleRate, channels, bitsPerSample int) []byte {
+	return wav.PCMToWAV(pcm, sampleRate, channels, bitsPerSample)
+}
 
 type mockMemory struct {
 	GetWindowFunc func(ctx context.Context, deviceID string, n int) ([]store.Message, error)
@@ -73,42 +76,35 @@ func (m *mockConn) Close() error {
 	return nil
 }
 
-type mockAisaas struct {
-	STTFunc  func(ctx context.Context, model string, wavData []byte) (*aisaas.STTResult, error)
-	ChatFunc func(ctx context.Context, model string, messages []aisaas.ChatMessage) (io.ReadCloser, error)
-	TTSFunc  func(ctx context.Context, model, text string) (io.ReadCloser, string, error)
-	GetPersonaFunc func(ctx context.Context, deviceID string, tenantID int64) (*aisaas.Persona, error)
+// New AisaasClient interface using Dialogue() instead of STT/Chat/TTS
+type mockAisaasDialogue struct {
+	DialogueFunc         func(ctx context.Context, deviceID string, wavBytes []byte) (*aisaas.DialogueResult, error)
+	GetPersonaFunc       func(ctx context.Context, deviceID string, tenantID int64) (*aisaas.Persona, error)
 }
 
-func (m *mockAisaas) STT(ctx context.Context, model string, wavData []byte) (*aisaas.STTResult, error) {
-	if m.STTFunc != nil {
-		return m.STTFunc(ctx, model, wavData)
+func (m *mockAisaasDialogue) Dialogue(ctx context.Context, deviceID string, wavBytes []byte) (*aisaas.DialogueResult, error) {
+	if m.DialogueFunc != nil {
+		return m.DialogueFunc(ctx, deviceID, wavBytes)
 	}
-	return &aisaas.STTResult{Text: "mock transcription"}, nil
+	return &aisaas.DialogueResult{
+		UserText:    "test user text",
+		ReplyText:   "test reply text",
+		AudioFormat: "opus",
+		SampleRate:  24000,
+		Audio:       []byte("test-opus-audio"),
+	}, nil
 }
 
-func (m *mockAisaas) Chat(ctx context.Context, model string, messages []aisaas.ChatMessage) (io.ReadCloser, error) {
-	if m.ChatFunc != nil {
-		return m.ChatFunc(ctx, model, messages)
-	}
-	return io.NopCloser(strings.NewReader(`data: {"choices":[{"delta":{"content":"Hello world"}}]}` + "\ndata: [DONE]")), nil
-}
-
-func (m *mockAisaas) TTS(ctx context.Context, model, text string) (io.ReadCloser, string, error) {
-	if m.TTSFunc != nil {
-		return m.TTSFunc(ctx, model, text)
-	}
-	return io.NopCloser(strings.NewReader("fake-tts-audio")), "audio/wav", nil
-}
-
-func (m *mockAisaas) GetPersonaByDevice(ctx context.Context, deviceID string, tenantID int64) (*aisaas.Persona, error) {
+func (m *mockAisaasDialogue) GetPersonaByDevice(ctx context.Context, deviceID string, tenantID int64) (*aisaas.Persona, error) {
 	if m.GetPersonaFunc != nil {
 		return m.GetPersonaFunc(ctx, deviceID, tenantID)
 	}
 	return nil, aisaas.ErrPersonaNotBound
 }
 
-func TestOrchestrator_Run_SuccessFlow(t *testing.T) {
+// Tests below use the new Dialogue-based interface
+
+func TestOrchestrator_Run_Dialogue_HappyPath(t *testing.T) {
 	splitter := NewSentenceSplitter()
 	mem := &mockMemory{
 		GetWindowFunc: func(ctx context.Context, deviceID string, n int) ([]store.Message, error) {
@@ -125,6 +121,7 @@ func TestOrchestrator_Run_SuccessFlow(t *testing.T) {
 	}
 
 	var ttsMessages []string
+	var writeMsgData []byte
 	conn := &mockConn{
 		WriteJSONFunc: func(v interface{}) error {
 			if msg, ok := v.(protocol.TTSMessage); ok {
@@ -132,290 +129,110 @@ func TestOrchestrator_Run_SuccessFlow(t *testing.T) {
 			}
 			return nil
 		},
+		WriteMessageFunc: func(msgType int, data []byte) error {
+			writeMsgData = data
+			return nil
+		},
 	}
 
-	ac := &mockAisaas{}
-	dec, _ := opus.NewDecoder(24000, 1)
-	orch := NewOrchestrator(ac, splitter, mem, dec, enc, zerolog.Logger{})
-
-	_ = "session1" // orchestrator takes audioBytes directly; sessionID is a plain string
+	ac := &mockAisaasDialogue{
+		DialogueFunc: func(ctx context.Context, deviceID string, wavBytes []byte) (*aisaas.DialogueResult, error) {
+			return &aisaas.DialogueResult{
+				UserText:    "今天天气怎么样",
+				ReplyText:   "今天天气很好",
+				AudioFormat: "opus",
+				SampleRate:  24000,
+				Audio:       []byte("test-opus-response"),
+			}, nil
+		},
+	}
+	orch := NewOrchestrator(ac, splitter, mem, enc, zerolog.Logger{})
 
 	ctx := context.Background()
 	err := orch.Run(ctx, "session1", conn, &aisaas.DeviceInfo{
-		DeviceID:    "device1",
-		LLMConfigID: 1,
-		TTSConfigID: 1,
-		VoiceName:   "alice",
+		DeviceID: "28:84:85:4b:43:a4",
 	}, []byte{0, 0, 0, 0})
 
 	require.NoError(t, err)
-	require.True(t, len(ttsMessages) >= 1, "expected at least one TTS message, got %d", len(ttsMessages))
+	assert.NotEmpty(t, ttsMessages, "expected TTS messages")
+	assert.Equal(t, []byte("test-opus-response"), writeMsgData)
 }
 
-func TestOrchestrator_Run_STTError(t *testing.T) {
+func TestOrchestrator_Run_Dialogue_EmptyAudio(t *testing.T) {
+	splitter := NewSentenceSplitter()
+	mem := &mockMemory{}
+	enc := &mockOpusEncoder{}
+	conn := &mockConn{}
+	ac := &mockAisaasDialogue{}
+	orch := NewOrchestrator(ac, splitter, mem, enc, zerolog.Logger{})
+
+	ctx := context.Background()
+	err := orch.Run(ctx, "session1", conn, &aisaas.DeviceInfo{DeviceID: "device1"}, []byte{})
+
+	require.NoError(t, err, "empty audio should be no-op")
+}
+
+func TestOrchestrator_Run_Dialogue_Error(t *testing.T) {
 	splitter := NewSentenceSplitter()
 	mem := &mockMemory{}
 	enc := &mockOpusEncoder{}
 	conn := &mockConn{}
 
-	ac := &mockAisaas{
-		STTFunc: func(ctx context.Context, model string, wavData []byte) (*aisaas.STTResult, error) {
-			return nil, errors.New("stt failed")
+	ac := &mockAisaasDialogue{
+		DialogueFunc: func(ctx context.Context, deviceID string, wavBytes []byte) (*aisaas.DialogueResult, error) {
+			return nil, errors.New("dialogue failed")
 		},
 	}
-	dec, _ := opus.NewDecoder(24000, 1)
-	orch := NewOrchestrator(ac, splitter, mem, dec, enc, zerolog.Logger{})
-
-	_ = "session1" // orchestrator takes audioBytes directly; sessionID is a plain string
+	orch := NewOrchestrator(ac, splitter, mem, enc, zerolog.Logger{})
 
 	ctx := context.Background()
 	err := orch.Run(ctx, "session1", conn, &aisaas.DeviceInfo{DeviceID: "device1"}, []byte{0, 0, 0, 0})
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "stt")
+	assert.Contains(t, err.Error(), "dialogue")
 }
 
-func TestOrchestrator_Run_OpusEncodeError(t *testing.T) {
-	splitter := NewSentenceSplitter()
-	mem := &mockMemory{}
-	enc := &mockOpusEncoder{
-		EncodeFunc: func(pcm []int16, frameSize int) ([]byte, error) {
-			return nil, errors.New("opus encode failed")
-		},
-	}
-
-	conn := &mockConn{}
-
-	ac := &mockAisaas{
-		STTFunc: func(ctx context.Context, model string, wavData []byte) (*aisaas.STTResult, error) {
-			return &aisaas.STTResult{Text: "hello"}, nil
-		},
-		ChatFunc: func(ctx context.Context, model string, messages []aisaas.ChatMessage) (io.ReadCloser, error) {
-			return io.NopCloser(strings.NewReader(`data: {"choices":[{"delta":{"content":"Hello."}}]}` + "\ndata: [DONE]")), nil
-		},
-		TTSFunc: func(ctx context.Context, model, text string) (io.ReadCloser, string, error) {
-			return io.NopCloser(strings.NewReader("fake-tts")), "audio/wav", nil
-		},
-	}
-	dec, _ := opus.NewDecoder(24000, 1)
-	orch := NewOrchestrator(ac, splitter, mem, dec, enc, zerolog.Logger{})
-
-	_ = "session1" // orchestrator takes audioBytes directly; sessionID is a plain string
-
-	ctx := context.Background()
-	err := orch.Run(ctx, "session1", conn, &aisaas.DeviceInfo{DeviceID: "device1"}, []byte{0, 0, 0, 0})
-
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "opus encode")
-}
-
-func TestOrchestrator_Run_CtxCanceled(t *testing.T) {
+func TestOrchestrator_Run_Dialogue_DeviceNotFound(t *testing.T) {
 	splitter := NewSentenceSplitter()
 	mem := &mockMemory{}
 	enc := &mockOpusEncoder{}
 	conn := &mockConn{}
 
-	ac := &mockAisaas{
-		STTFunc: func(ctx context.Context, model string, wavData []byte) (*aisaas.STTResult, error) {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			default:
-			}
-			return &aisaas.STTResult{Text: "test"}, nil
-		},
-		ChatFunc: func(ctx context.Context, model string, messages []aisaas.ChatMessage) (io.ReadCloser, error) {
-			<-ctx.Done()
-			return nil, ctx.Err()
+	ac := &mockAisaasDialogue{
+		DialogueFunc: func(ctx context.Context, deviceID string, wavBytes []byte) (*aisaas.DialogueResult, error) {
+			return nil, aisaas.ErrDeviceNotRegistered
 		},
 	}
-	dec, _ := opus.NewDecoder(24000, 1)
-	orch := NewOrchestrator(ac, splitter, mem, dec, enc, zerolog.Logger{})
+	orch := NewOrchestrator(ac, splitter, mem, enc, zerolog.Logger{})
 
-	_ = "session1" // orchestrator takes audioBytes directly; sessionID is a plain string
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	err := orch.Run(ctx, "session1", conn, &aisaas.DeviceInfo{DeviceID: "device1"}, []byte{0, 0, 0, 0})
+	ctx := context.Background()
+	err := orch.Run(ctx, "session1", conn, &aisaas.DeviceInfo{DeviceID: "unknown"}, []byte{0, 0, 0, 0})
 
 	require.Error(t, err)
-	require.ErrorIs(t, err, context.Canceled)
+	assert.Contains(t, err.Error(), "device not registered")
 }
 
-func TestOrchestrator_Run_MultipleSentences(t *testing.T) {
-	splitter := NewSentenceSplitter()
-	mem := &mockMemory{
-		SaveTurnFunc: func(ctx context.Context, deviceID, sessionID, userText, assistantText string) error {
-			return nil
-		},
-	}
-	enc := &mockOpusEncoder{
-		EncodeFunc: func(pcm []int16, frameSize int) ([]byte, error) {
-			return []byte("encoded"), nil
-		},
-	}
-
-	var sentenceCount int
-	conn := &mockConn{
-		WriteJSONFunc: func(v interface{}) error {
-			if msg, ok := v.(protocol.TTSMessage); ok {
-				if msg.State == protocol.TTSStateSentenceStart {
-					sentenceCount++
-				}
-			}
-			return nil
-		},
-	}
-
-	ac := &mockAisaas{
-		STTFunc: func(ctx context.Context, model string, wavData []byte) (*aisaas.STTResult, error) {
-			return &aisaas.STTResult{Text: "hello"}, nil
-		},
-		ChatFunc: func(ctx context.Context, model string, messages []aisaas.ChatMessage) (io.ReadCloser, error) {
-			return io.NopCloser(strings.NewReader(
-				`data: {"choices":[{"delta":{"content":"第一句。"}}]}` + "\n" +
-					`data: {"choices":[{"delta":{"content":"第二句。"}}]}` + "\n" +
-					`data: [DONE]`)), nil
-		},
-		TTSFunc: func(ctx context.Context, model, text string) (io.ReadCloser, string, error) {
-			return io.NopCloser(strings.NewReader("fake-tts")), "audio/wav", nil
-		},
-	}
-	dec, _ := opus.NewDecoder(24000, 1)
-	orch := NewOrchestrator(ac, splitter, mem, dec, enc, zerolog.Logger{})
-
-	_ = "session1" // orchestrator takes audioBytes directly; sessionID is a plain string
-
-	ctx := context.Background()
-	err := orch.Run(ctx, "session1", conn, &aisaas.DeviceInfo{DeviceID: "device1"}, []byte{0, 0, 0, 0})
-
-	require.NoError(t, err)
-	require.Equal(t, 2, sentenceCount, "expected 2 sentences")
-}
-
-func TestOrchestrator_Run_EmptyAudio(t *testing.T) {
-	splitter := NewSentenceSplitter()
-	mem := &mockMemory{}
-	enc := &mockOpusEncoder{}
-	conn := &mockConn{}
-	ac := &mockAisaas{}
-	dec, _ := opus.NewDecoder(24000, 1)
-	orch := NewOrchestrator(ac, splitter, mem, dec, enc, zerolog.Logger{})
-
-	session := "session1" // unused; orchestrator takes audioBytes directly
-	_ = session
-
-	ctx := context.Background()
-	err := orch.Run(ctx, "session1", conn, &aisaas.DeviceInfo{DeviceID: "device1"}, []byte{0, 0, 0, 0})
-
-	require.NoError(t, err)
-}
-
-func TestOrchestrator_Run_ChatError(t *testing.T) {
+func TestOrchestrator_Run_Dialogue_QuotaExceeded(t *testing.T) {
 	splitter := NewSentenceSplitter()
 	mem := &mockMemory{}
 	enc := &mockOpusEncoder{}
 	conn := &mockConn{}
 
-	ac := &mockAisaas{
-		STTFunc: func(ctx context.Context, model string, wavData []byte) (*aisaas.STTResult, error) {
-			return &aisaas.STTResult{Text: "hello"}, nil
-		},
-		ChatFunc: func(ctx context.Context, model string, messages []aisaas.ChatMessage) (io.ReadCloser, error) {
-			return nil, errors.New("chat failed")
+	ac := &mockAisaasDialogue{
+		DialogueFunc: func(ctx context.Context, deviceID string, wavBytes []byte) (*aisaas.DialogueResult, error) {
+			return nil, errors.New("quota exceeded")
 		},
 	}
-	dec, _ := opus.NewDecoder(24000, 1)
-	orch := NewOrchestrator(ac, splitter, mem, dec, enc, zerolog.Logger{})
-
-	_ = "session1" // orchestrator takes audioBytes directly; sessionID is a plain string
+	orch := NewOrchestrator(ac, splitter, mem, enc, zerolog.Logger{})
 
 	ctx := context.Background()
 	err := orch.Run(ctx, "session1", conn, &aisaas.DeviceInfo{DeviceID: "device1"}, []byte{0, 0, 0, 0})
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "chat")
+	assert.Contains(t, err.Error(), "quota")
 }
 
-func TestOrchestrator_Run_TTSError(t *testing.T) {
-	splitter := NewSentenceSplitter()
-	mem := &mockMemory{}
-	enc := &mockOpusEncoder{}
-
-	conn := &mockConn{}
-
-	ac := &mockAisaas{
-		STTFunc: func(ctx context.Context, model string, wavData []byte) (*aisaas.STTResult, error) {
-			return &aisaas.STTResult{Text: "hello"}, nil
-		},
-		ChatFunc: func(ctx context.Context, model string, messages []aisaas.ChatMessage) (io.ReadCloser, error) {
-			return io.NopCloser(strings.NewReader(
-				`data: {"choices":[{"delta":{"content":"测试。"}}]}` + "\ndata: [DONE]")), nil
-		},
-		TTSFunc: func(ctx context.Context, model, text string) (io.ReadCloser, string, error) {
-			return nil, "", errors.New("tts failed")
-		},
-	}
-	dec, _ := opus.NewDecoder(24000, 1)
-	orch := NewOrchestrator(ac, splitter, mem, dec, enc, zerolog.Logger{})
-
-	_ = "session1" // orchestrator takes audioBytes directly; sessionID is a plain string
-
-	ctx := context.Background()
-	err := orch.Run(ctx, "session1", conn, &aisaas.DeviceInfo{DeviceID: "device1"}, []byte{0, 0, 0, 0})
-
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "tts")
-}
-
-func TestOrchestrator_Run_MemorySaveError(t *testing.T) {
-	splitter := NewSentenceSplitter()
-	mem := &mockMemory{
-		SaveTurnFunc: func(ctx context.Context, deviceID, sessionID, userText, assistantText string) error {
-			return errors.New("save failed")
-		},
-	}
-	enc := &mockOpusEncoder{
-		EncodeFunc: func(pcm []int16, frameSize int) ([]byte, error) {
-			return []byte("encoded"), nil
-		},
-	}
-
-	var ttsMessages []string
-	conn := &mockConn{
-		WriteJSONFunc: func(v interface{}) error {
-			if msg, ok := v.(protocol.TTSMessage); ok {
-				ttsMessages = append(ttsMessages, string(msg.State))
-			}
-			return nil
-		},
-	}
-
-	ac := &mockAisaas{
-		STTFunc: func(ctx context.Context, model string, wavData []byte) (*aisaas.STTResult, error) {
-			return &aisaas.STTResult{Text: "hello"}, nil
-		},
-		ChatFunc: func(ctx context.Context, model string, messages []aisaas.ChatMessage) (io.ReadCloser, error) {
-			return io.NopCloser(strings.NewReader(
-				`data: {"choices":[{"delta":{"content":"回复。"}}]}` + "\ndata: [DONE]")), nil
-		},
-		TTSFunc: func(ctx context.Context, model, text string) (io.ReadCloser, string, error) {
-			return io.NopCloser(strings.NewReader("fake-tts")), "audio/wav", nil
-		},
-	}
-	dec, _ := opus.NewDecoder(24000, 1)
-	orch := NewOrchestrator(ac, splitter, mem, dec, enc, zerolog.Logger{})
-
-	_ = "session1" // orchestrator takes audioBytes directly; sessionID is a plain string
-
-	ctx := context.Background()
-	err := orch.Run(ctx, "session1", conn, &aisaas.DeviceInfo{DeviceID: "device1"}, []byte{0, 0, 0, 0})
-
-	require.NoError(t, err)
-}
-
-func TestOrchestrator_Run_WriteJSONError(t *testing.T) {
+func TestOrchestrator_Run_Dialogue_WriteJSONError(t *testing.T) {
 	splitter := NewSentenceSplitter()
 	mem := &mockMemory{}
 	enc := &mockOpusEncoder{
@@ -430,22 +247,18 @@ func TestOrchestrator_Run_WriteJSONError(t *testing.T) {
 		},
 	}
 
-	ac := &mockAisaas{
-		STTFunc: func(ctx context.Context, model string, wavData []byte) (*aisaas.STTResult, error) {
-			return &aisaas.STTResult{Text: "hello"}, nil
-		},
-		ChatFunc: func(ctx context.Context, model string, messages []aisaas.ChatMessage) (io.ReadCloser, error) {
-			return io.NopCloser(strings.NewReader(
-				`data: {"choices":[{"delta":{"content":"测试。"}}]}` + "\ndata: [DONE]")), nil
-		},
-		TTSFunc: func(ctx context.Context, model, text string) (io.ReadCloser, string, error) {
-			return io.NopCloser(strings.NewReader("fake-tts")), "audio/wav", nil
+	ac := &mockAisaasDialogue{
+		DialogueFunc: func(ctx context.Context, deviceID string, wavBytes []byte) (*aisaas.DialogueResult, error) {
+			return &aisaas.DialogueResult{
+				UserText:    "hello",
+				ReplyText:   "hi",
+				AudioFormat: "opus",
+				SampleRate:  24000,
+				Audio:       []byte("test-opus"),
+			}, nil
 		},
 	}
-	dec, _ := opus.NewDecoder(24000, 1)
-	orch := NewOrchestrator(ac, splitter, mem, dec, enc, zerolog.Logger{})
-
-	_ = "session1" // orchestrator takes audioBytes directly; sessionID is a plain string
+	orch := NewOrchestrator(ac, splitter, mem, enc, zerolog.Logger{})
 
 	ctx := context.Background()
 	err := orch.Run(ctx, "session1", conn, &aisaas.DeviceInfo{DeviceID: "device1"}, []byte{0, 0, 0, 0})
@@ -454,87 +267,115 @@ func TestOrchestrator_Run_WriteJSONError(t *testing.T) {
 	require.Contains(t, err.Error(), "write failed")
 }
 
-func TestOrchestrator_Run_InjectsPersonaSystemPrompt(t *testing.T) {
+func TestOrchestrator_Run_Dialogue_PlayOpusToClient(t *testing.T) {
 	splitter := NewSentenceSplitter()
 	mem := &mockMemory{
-		GetWindowFunc: func(ctx context.Context, deviceID string, n int) ([]store.Message, error) {
-			return nil, nil
-		},
 		SaveTurnFunc: func(ctx context.Context, deviceID, sessionID, userText, assistantText string) error {
 			return nil
 		},
 	}
-	enc := &mockOpusEncoder{}
-	conn := &mockConn{}
+	enc := &mockOpusEncoder{
+		EncodeFunc: func(pcm []int16, frameSize int) ([]byte, error) {
+			return []byte("encoded-opus-frame"), nil
+		},
+	}
 
-	const wantSystem = "You are Hakumi. Hakumi is a small life form from a distant planet."
-	var capturedMessages []aisaas.ChatMessage
-	var capturedModel string
-	ac := &mockAisaas{
-		GetPersonaFunc: func(ctx context.Context, deviceID string, tenantID int64) (*aisaas.Persona, error) {
-			assert.Equal(t, "device1", deviceID)
-			assert.Equal(t, int64(1001), tenantID)
-			return &aisaas.Persona{
-				ID:             1,
-				Code:           "hakumi02",
-				Name:           "hakumi",
-				SystemPrompt:   wantSystem,
-				DefaultModelID: "demo-chat",
-				TenantID:       1001,
+	var receivedOpusFrame []byte
+	var ttsStartSent bool
+	conn := &mockConn{
+		WriteJSONFunc: func(v interface{}) error {
+			if msg, ok := v.(protocol.TTSMessage); ok {
+				if msg.State == protocol.TTSStateStart {
+					ttsStartSent = true
+				}
+			}
+			return nil
+		},
+		WriteMessageFunc: func(msgType int, data []byte) error {
+			receivedOpusFrame = data
+			return nil
+		},
+	}
+
+	ac := &mockAisaasDialogue{
+		DialogueFunc: func(ctx context.Context, deviceID string, wavBytes []byte) (*aisaas.DialogueResult, error) {
+			return &aisaas.DialogueResult{
+				UserText:    "hello",
+				ReplyText:   "hi there",
+				AudioFormat: "opus",
+				SampleRate:  24000,
+				Audio:       []byte("raw-opus-bytes"),
 			}, nil
 		},
-		ChatFunc: func(ctx context.Context, model string, messages []aisaas.ChatMessage) (io.ReadCloser, error) {
-			capturedMessages = messages
-			capturedModel = model
-			return io.NopCloser(strings.NewReader(`data: {"choices":[{"delta":{"content":"hi"}}]}` + "\ndata: [DONE]")), nil
-		},
 	}
-	dec, _ := opus.NewDecoder(24000, 1)
-	orch := NewOrchestrator(ac, splitter, mem, dec, enc, zerolog.Logger{})
+	orch := NewOrchestrator(ac, splitter, mem, enc, zerolog.Logger{})
 
-	err := orch.Run(context.Background(), "session1", conn, &aisaas.DeviceInfo{
-		DeviceID: "device1",
-		UserID:   1001,
-	}, []byte{0, 0, 0, 0})
+	ctx := context.Background()
+	err := orch.Run(ctx, "session1", conn, &aisaas.DeviceInfo{DeviceID: "device1"}, []byte{0, 0, 0, 0})
 
 	require.NoError(t, err)
-	require.Len(t, capturedMessages, 2, "system + user")
-	assert.Equal(t, "system", capturedMessages[0].Role)
-	assert.Equal(t, wantSystem, capturedMessages[0].Content)
-	assert.Equal(t, "user", capturedMessages[1].Role)
-	assert.Equal(t, "demo-chat", capturedModel, "use persona.DefaultModelID")
+	assert.True(t, ttsStartSent, "TTS start should be sent")
+	assert.Equal(t, []byte("raw-opus-bytes"), receivedOpusFrame, "raw opus should be sent directly")
 }
 
-func TestOrchestrator_Run_PersonaNotBound_FallsBackToDefaultModel(t *testing.T) {
+func TestOrchestrator_Run_Dialogue_PlayOpusToClientWithWAV(t *testing.T) {
 	splitter := NewSentenceSplitter()
 	mem := &mockMemory{
-		GetWindowFunc: func(ctx context.Context, deviceID string, n int) ([]store.Message, error) {
-			return nil, nil
+		SaveTurnFunc: func(ctx context.Context, deviceID, sessionID, userText, assistantText string) error {
+			return nil
 		},
 	}
-	enc := &mockOpusEncoder{}
-	conn := &mockConn{}
-
-	var capturedMessages []aisaas.ChatMessage
-	var capturedModel string
-	ac := &mockAisaas{
-		// GetPersonaFunc nil → 默认返回 ErrPersonaNotBound
-		ChatFunc: func(ctx context.Context, model string, messages []aisaas.ChatMessage) (io.ReadCloser, error) {
-			capturedMessages = messages
-			capturedModel = model
-			return io.NopCloser(strings.NewReader(`data: {"choices":[{"delta":{"content":"hi"}}]}` + "\ndata: [DONE]")), nil
+	enc := &mockOpusEncoder{
+		EncodeFunc: func(pcm []int16, frameSize int) ([]byte, error) {
+			return []byte("encoded-opus-frame"), nil
 		},
 	}
-	dec, _ := opus.NewDecoder(24000, 1)
-	orch := NewOrchestrator(ac, splitter, mem, dec, enc, zerolog.Logger{})
 
-	err := orch.Run(context.Background(), "session1", conn, &aisaas.DeviceInfo{
-		DeviceID:    "device1",
-		LLMConfigID: 7,
-	}, []byte{0, 0, 0, 0})
+	var receivedOpusFrames [][]byte
+	conn := &mockConn{
+		WriteJSONFunc: func(v interface{}) error {
+			return nil
+		},
+		WriteMessageFunc: func(msgType int, data []byte) error {
+			if msgType == 2 { // binary
+				receivedOpusFrames = append(receivedOpusFrames, data)
+			}
+			return nil
+		},
+	}
+
+	// Simulate aisaas returning a 120ms valid WAV (16kHz mono 16-bit) -> 2 opus frames at 60ms each.
+	const sampleRate = 16000
+	const channels = 1
+	const bitsPerSample = 16
+	const durationMS = 120
+	pcmSamples := make([]int16, sampleRate*durationMS/1000)
+	pcmBytes := make([]byte, len(pcmSamples)*2)
+	for i, s := range pcmSamples {
+		binary.LittleEndian.PutUint16(pcmBytes[2*i:], uint16(s))
+	}
+	wavAudio := wavFromPCM(pcmBytes, sampleRate, channels, bitsPerSample)
+
+	ac := &mockAisaasDialogue{
+		DialogueFunc: func(ctx context.Context, deviceID string, wavBytes []byte) (*aisaas.DialogueResult, error) {
+			return &aisaas.DialogueResult{
+				UserText:    "test",
+				ReplyText:   "test reply",
+				AudioFormat: "wav",
+				SampleRate:  sampleRate,
+				Audio:       wavAudio,
+			}, nil
+		},
+	}
+	orch := NewOrchestrator(ac, splitter, mem, enc, zerolog.Logger{})
+
+	ctx := context.Background()
+	err := orch.Run(ctx, "session1", conn, &aisaas.DeviceInfo{DeviceID: "device1"}, []byte{0, 0, 0, 0})
 
 	require.NoError(t, err)
-	require.Len(t, capturedMessages, 1, "无 system，仅 user")
-	assert.Equal(t, "user", capturedMessages[0].Role)
-	assert.Equal(t, "llm-7", capturedModel, "fallback to LLMConfigID")
+	// aisaas returns wav -> orchestrator decodes to PCM and encodes 2 opus frames (60ms each).
+	assert.Len(t, receivedOpusFrames, 2, "expected 2 opus frames (120ms / 60ms)")
+	for i, frame := range receivedOpusFrames {
+		assert.Equal(t, []byte("encoded-opus-frame"), frame, "frame %d content", i)
+	}
 }

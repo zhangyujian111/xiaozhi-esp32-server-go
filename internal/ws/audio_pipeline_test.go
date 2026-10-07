@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/audio/vad"
 )
 
 type mockVADForPipeline struct {
@@ -18,6 +19,8 @@ func (m *mockVADForPipeline) Process(pcm []int16) (float32, error) {
 	m.callCount++
 	return s, e
 }
+
+func (m *mockVADForPipeline) StartSession() vad.Session { return nil }
 
 func TestAudioPipeline_SpeechStart_EmitsEvent(t *testing.T) {
 	mock := &mockVADForPipeline{

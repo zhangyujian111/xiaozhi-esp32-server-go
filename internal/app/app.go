@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -52,7 +55,11 @@ func NewApp(cfg *config.Config) (*App, error) {
 	logger := obs.InitLogger(cfg.Logging.Level, cfg.Logging.Format)
 
 	memory := store.NewInMemoryMemory()
-	deviceStore := store.NewInMemoryDeviceStore()
+	deviceStorePath := filepath.Join("data", "devices.json")
+	deviceStore, err := store.NewFileDeviceStore(deviceStorePath)
+	if err != nil {
+		return nil, fmt.Errorf("init device store at %s: %w", deviceStorePath, err)
+	}
 	eventBus := event.NewEventBus(100)
 
 	aisaasClient := aisaas.NewClient(cfg.Aisaas.BaseURL, cfg.Aisaas.InternalToken)
@@ -71,6 +78,7 @@ func NewApp(cfg *config.Config) (*App, error) {
 	wsHandler.SetEventBus(eventBus)
 	wsHandler.SetDeviceClient(aisaasClient)
 	wsHandler.SetOpusDecoder(opusDecoder)
+	wsHandler.SetDeviceStore(deviceStore)
 
 	// Server-side VAD (Silero). When the model file is present and the binary
 	// was built with `-tags silero`, every opus frame is decoded and pushed
@@ -84,12 +92,13 @@ func NewApp(cfg *config.Config) (*App, error) {
 		if vErr != nil {
 			logger.Warn().Err(vErr).Str("model_path", cfg.VAD.ModelPath).Msg("silero VAD unavailable; falling back to listen-stop only")
 		} else {
-			audioPipeline = ws.NewAudioPipeline(
+			audioPipeline = ws.NewAudioPipelineWithLog(
 				sessionManager,
 				silero,
 				cfg.VAD.SpeechThreshold,
 				cfg.VAD.SilenceThreshold,
 				cfg.VAD.SilenceDurationMs,
+				logger,
 			)
 			wsHandler.SetPipeline(audioPipeline)
 			logger.Info().Str("model_path", cfg.VAD.ModelPath).Msg("silero VAD pipeline wired")
@@ -98,8 +107,22 @@ func NewApp(cfg *config.Config) (*App, error) {
 
 	// Dialogue orchestrator：audio -> STT -> Chat (persona) -> TTS -> 回写
 	sentenceSplitter := dialogue.NewSentenceSplitter()
-	orchestrator := dialogue.NewOrchestrator(aisaasClient, sentenceSplitter, memory, opusDecoder, opusEncoder, logger)
+	orchestrator := dialogue.NewOrchestrator(aisaasClient, sentenceSplitter, memory, opusEncoder, logger).
+		WithFramePacer(dialogue.NewFramePacer(60 * time.Millisecond))
 	wsHandler.SetOrchestrator(orchestrator)
+
+	// Streaming dialogue orchestrator (aisaas /dialogue/stream SSE edge-push).
+	// When cfg.Dialogue.StreamingEnabled is true, ws.Handler prefers this path
+	// for lower latency (LLM stream + TTS stream); otherwise it falls back to
+	// the legacy Orchestrator above.
+	streamClientFactory := func(apiKey string) *aisaas.StreamClient {
+		sc := aisaas.NewStreamClient(cfg.Aisaas.BaseURL, cfg.Aisaas.InternalToken)
+		sc.APIKey = apiKey // per-session; 由 invokeOrchestrator 在调 Run 前注入
+		return sc
+	}
+	streamOrchestrator := dialogue.NewStreamOrchestrator(streamClientFactory, opusEncoder, logger).
+		WithFramePacer(dialogue.NewFramePacer(60 * time.Millisecond))
+	wsHandler.SetStreamOrchestrator(streamOrchestrator, cfg.Dialogue.StreamingEnabled)
 
 	gin.SetMode(gin.ReleaseMode)
 	adminMux := gin.New()
@@ -119,7 +142,7 @@ func NewApp(cfg *config.Config) (*App, error) {
 		publicWSURL = "wss://" + cfg.Server.WebsocketAddr
 		logger.Warn().Msgf("server.public_ws_url not set, fallback to %q (may be invalid for hardware)", publicWSURL)
 	}
-	otaHandler := api.NewOTAHandler(deviceStore, aisaasClient, latestFW, publicWSURL)
+	otaHandler := api.NewOTAHandler(deviceStore, aisaasClient, latestFW, publicWSURL, logger)
 	adminMux.POST("/api/device/ota", otaHandler.HandleOTA)
 
 	// PR-4：设备轮询"我激活了吗"端点（对齐 xiaozhi-java DeviceController.otaActivate）
@@ -173,7 +196,22 @@ func (a *App) AdminHandler() http.Handler {
 func (a *App) Run(ctx context.Context) error {
 	g, ctx := errgroup.WithContext(ctx)
 
+	publicURL, _ := url.Parse(a.cfg.Server.PublicWSURL)
+	publicHost := ""
+	if publicURL != nil {
+		publicHost = publicURL.Hostname()
+	}
+	if publicHost == "" {
+		publicHost = "127.0.0.1"
+	}
+
 	g.Go(func() error {
+		a.logger.Info().
+			Str("addr", a.AdminSrv.Addr).
+			Str("public_http_url", "http://"+publicHost+a.AdminSrv.Addr).
+			Str("ota_url", "http://"+publicHost+a.AdminSrv.Addr+"/api/device/ota").
+			Str("ota_activate_url", "http://"+publicHost+a.AdminSrv.Addr+"/api/device/ota/activate").
+			Msg("admin server listening")
 		if err := a.AdminSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
@@ -181,6 +219,10 @@ func (a *App) Run(ctx context.Context) error {
 	})
 
 	g.Go(func() error {
+		a.logger.Info().
+			Str("addr", a.WsSrv.Addr).
+			Str("public_ws_url", "ws://"+publicHost+a.WsSrv.Addr+"/ws").
+			Msg("websocket server listening")
 		if err := a.WsSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}

@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rs/zerolog"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/aisaas"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/config"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/store"
@@ -37,7 +38,7 @@ func SetupAPIRouter(cfg *config.Config, ds store.DeviceStore) *gin.Engine {
 	latestFW := "1.1.0"
 	publicWSURL := "wss://" + cfg.Server.WebsocketAddr
 
-	otaHandler := NewOTAHandler(ds, aisaasClient, latestFW, publicWSURL)
+	otaHandler := NewOTAHandler(ds, aisaasClient, latestFW, publicWSURL, zerolog.Nop())
 	r.POST("/api/device/ota", otaHandler.HandleOTA)
 
 	// PR-4：设备轮询"我激活了吗"端点（对齐 xiaozhi-java DeviceController.otaActivate）

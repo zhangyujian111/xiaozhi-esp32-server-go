@@ -24,6 +24,11 @@ var validTransitions = map[SessionState][]SessionState{
 	StateSpeaking:  {StateListening, StateIdle},
 }
 
+// PcmDumper interface for debugging PCM dumps (used by debug dumpFile feature).
+type PcmDumper interface {
+	WriteChunk(chunk []int16)
+}
+
 type ChatSession struct {
 	mu           sync.RWMutex
 	id           string
@@ -33,6 +38,7 @@ type ChatSession struct {
 	createdAt    time.Time
 	lastActiveAt time.Time
 	audioBuf     *AudioRingBuffer
+	dumpFile     PcmDumper // nil unless debug PCM dump is enabled
 }
 
 func NewChatSession(deviceID, sessionID string) *ChatSession {

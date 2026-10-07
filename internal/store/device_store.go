@@ -19,6 +19,7 @@ type Device struct {
 	LastSeenAt        time.Time
 	ActivatedAt       time.Time
 	Token             string
+	APIKey            string // aisaas 设备 API Key（Bearer sk-aisaas-...），STT/Chat/TTS 必带
 	CreatedAt         time.Time
 }
 

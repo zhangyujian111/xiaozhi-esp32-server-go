@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/aisaas"
 	"github.com/xiaozhi/xiaozhi-esp32-server-go/internal/store"
@@ -120,7 +121,7 @@ func setupOTATest() (*gin.Engine, *mockOTAStore, *mockOTAClient) {
 	r := gin.New()
 	ms := &mockOTAStore{devices: make(map[string]*store.Device)}
 	mc := &mockOTAClient{getDeviceResp: &aisaas.DeviceInfo{DeviceID: "AA:BB:CC:DD:EE:FF", TenantID: 1, BindCode: "123456"}}
-	h := NewOTAHandler(ms, mc, "1.1.0", "ws://192.168.200.242:8082")
+	h := NewOTAHandler(ms, mc, "1.1.0", "ws://192.168.200.242:8082", zerolog.Nop())
 	r.POST("/api/device/ota", h.HandleOTA)
 	return r, ms, mc
 }
@@ -149,7 +150,7 @@ func TestOTA_InvalidMAC_400(t *testing.T) {
 	require.Contains(t, w.Body.String(), "invalid Device-Id")
 }
 
-// ===== 设备未开户 → 自动注册 → 返回 activation =====
+// ===== 设备未开�?�?自动注册 �?返回 activation =====
 
 func TestOTA_UnregisteredDevice_AutoRegistersAndReturnsActivation(t *testing.T) {
 	r, ms, mc := setupOTATest()
@@ -164,7 +165,7 @@ func TestOTA_UnregisteredDevice_AutoRegistersAndReturnsActivation(t *testing.T) 
 	// rebuild handler with new mock
 	gin.SetMode(gin.TestMode)
 	r = gin.New()
-	h := NewOTAHandler(ms, mc, "1.1.0", "ws://192.168.200.242:8082")
+	h := NewOTAHandler(ms, mc, "1.1.0", "ws://192.168.200.242:8082", zerolog.Nop())
 	r.POST("/api/device/ota", h.HandleOTA)
 
 	mc.getDeviceErr = aisaas.ErrDeviceNotRegistered
@@ -179,15 +180,15 @@ func TestOTA_UnregisteredDevice_AutoRegistersAndReturnsActivation(t *testing.T) 
 	assertEqual(t, "654321", resp.Activation.Code)
 	assertEqual(t, "654321", resp.Activation.Message)
 	assertEqual(t, "AA:BB:CC:DD:EE:FF", resp.Activation.Challenge)
-	assertEqual(t, "", resp.Websocket.URL, "未绑 persona 时不应返回 websocket URL")
-	assertTrue(t, mc.registerCalled, "首次调用应触发 RegisterDevice")
+	assertEqual(t, "", resp.Websocket.URL, "未绑 persona 时不应返�?websocket URL")
+	assertTrue(t, mc.registerCalled, "首次调用应触�?RegisterDevice")
 }
 
-// ===== 已开户未绑 persona → 返回 activation =====
+// ===== 已开户未�?persona �?返回 activation =====
 
 func TestOTA_RegisteredDevice_NoPersonaBound_ReturnsActivation(t *testing.T) {
 	r, _, mc := setupOTATest()
-	// bindCode 已有但 persona 未绑
+	// bindCode 已有�?persona 未绑
 	mc.personaErr = aisaas.ErrPersonaNotBound
 
 	w := otaRequest(t, r, "AA:BB:CC:DD:EE:FF", "1.0.0")
@@ -200,7 +201,7 @@ func TestOTA_RegisteredDevice_NoPersonaBound_ReturnsActivation(t *testing.T) {
 	assertEqual(t, "", resp.Websocket.URL)
 }
 
-// ===== 已绑 persona → 返回 websocket =====
+// ===== 已绑 persona �?返回 websocket =====
 
 func TestOTA_RegisteredDevice_PersonaBound_ReturnsWebSocket(t *testing.T) {
 	r, _, mc := setupOTATest()
@@ -221,7 +222,7 @@ func TestOTA_RegisteredDevice_PersonaBound_ReturnsWebSocket(t *testing.T) {
 	assertNil(t, resp.Activation)
 }
 
-// ===== 已有本地 device + 绑 persona → 复用 token =====
+// ===== 已有本地 device + �?persona �?复用 token =====
 
 func TestOTA_ExistingLocalDevice_Bound_PreservesToken(t *testing.T) {
 	r, ms, mc := setupOTATest()
